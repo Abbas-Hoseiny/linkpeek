@@ -1,0 +1,70 @@
+services:
+  app:
+    # Use the published multi-arch image by default. Add build context to allow local builds.
+    image: hoseiny/linkpeek:latest
+    build: .
+    # Run as root so the container can talk to the Docker socket for tunnel restarts
+    user: "0:0"
+    ports:
+      - "0.0.0.0:9009:9009"
+    environment:
+      - DATA_DIR=/data
+      - DATABASE_URL=postgres://app:app@db:5432/tracker?sslmode=disable
+      - CLOUDFLARED_CONTAINER=cloudflared
+      # Optional: enable admin actions when you access the UI via the tunnel URL
+      # - ALLOW_TUNNEL_ADMIN=1
+      # Optional: DB-IP API key to enrich GEO data
+      # - DBIP_API_KEY=your_dbip_key
+    volumes:
+      - data:/data
+      # RW socket required for /api/tunnel/restart; remove if you don't need the Restart button
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9009/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    depends_on:
+      cloudflared:
+        condition: service_started
+      db:
+        condition: service_healthy
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    user: "0:0"
+    container_name: cloudflared
+    command: >-
+      tunnel
+      --no-autoupdate
+      --metrics 0.0.0.0:8081
+      --logfile /data/cloudflared.log
+      --loglevel debug
+      --edge-ip-version 4
+      --protocol http2
+      --ha-connections 2
+      --url http://app:9009
+    restart: unless-stopped
+    volumes:
+      - data:/data
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: tracker
+    ports:
+      - "55432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d tracker"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  data:
+    driver: local
+  pgdata:

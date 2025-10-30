@@ -1,0 +1,164 @@
+.access-body {
+  min-height: 100vh;
+  background: radial-gradient(
+      circle at top,
+      rgba(76, 141, 255, 0.12),
+      transparent 45%
+    ),
+    var(--bg-base);
+  display: flex;
+  flex-direction: column;
+}
+
+.access-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg-elevated) 75%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.access-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.access-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.access-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logout-form {
+  margin: 0;
+}
+
+.access-main {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: 32px 16px 64px;
+}
+
+.access-shell {
+  width: min(480px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.access-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 24px;
+  box-shadow: 0 24px 40px rgba(15, 23, 42, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.access-card header h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.access-hint {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.access-note {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(76, 141, 255, 0.12);
+  border: 1px solid rgba(76, 141, 255, 0.24);
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.access-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.access-form label {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.access-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.access-alert {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  border: 1px solid transparent;
+}
+
+.access-alert.success {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+
+.access-alert.error {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #f87171;
+}
+
+.access-alert.notice {
+  background: rgba(250, 204, 21, 0.12);
+  border-color: rgba(250, 204, 21, 0.4);
+  color: #facc15;
+}
+
+.form-status {
+  min-height: 18px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.form-status.is-error {
+  color: #f87171;
+}
+
+.form-status.is-success {
+  color: #34d399;
+}
+
+@media (max-width: 640px) {
+  .access-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .access-nav {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .access-card {
+    padding: 20px;
+  }
+}

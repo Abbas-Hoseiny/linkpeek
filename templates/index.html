@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LinkPeek</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/auth.css" />
+  </head>
+  <body>
+    <noscript>
+      <div
+        style="
+          padding: 12px;
+          margin: 8px;
+          border: 1px solid #e11d48;
+          background: #fef2f2;
+          color: #7f1d1d;
+          border-radius: 8px;
+          font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+            Helvetica, Arial;
+        "
+      >
+        JavaScript is disabled or failed to load. This page requires JavaScript.
+      </div>
+    </noscript>
+    <header class="app">
+      <div class="brand">
+        <span class="title">LinkPeek</span>
+      </div>
+      <nav>
+        <span class="pill"><span class="dot" id="liveDot"></span> Live</span>
+        <a class="btn" id="navHome" href="#home">Home</a>
+        <a class="btn" id="navTunnel" href="#tunnel">Tunnel</a>
+        <a class="btn" id="navPayload" href="#payload">Payload Lab</a>
+        <a class="btn" id="navRetry" href="#retry">Retry Lab</a>
+        <a class="btn" id="navCapture" href="#capture">Capture</a>
+        <a class="btn" id="navScanner" href="#scanner">Scanner</a>
+        <a class="btn" id="navAccess" href="/access">Access</a>
+        <button class="btn" id="themeToggle" title="Toggle theme">Light</button>
+        <a class="btn warn" id="navLogout" href="/logout" title="Sign out of this session">Logout</a>
+      </nav>
+    </header>
+
+  <!-- Home Page -->
+  <!-- Mark Home as initially active if JS fails, so the page isn't blank -->
+    <div class="wrap page active" id="pageHome">
+      <aside>
+        <div class="aside-head">
+          <div class="controls bare">
+            <input id="ipSearch" class="input" placeholder="Search IPs" />
+            <select id="ipSort" class="input" aria-label="Sort IPs">
+              <option value="last_seen" selected>Last seen</option>
+              <option value="req_count">Req count</option>
+            </select>
+            <button class="btn" id="btnLoadIPs">Load</button>
+            <span class="btn ip-count" id="ipCount" aria-live="polite"
+              >IPs: —</span
+            >
+            <div class="metrics">
+              <span class="badge-kv" id="metricCPU">CPU: </span>
+              <span class="badge-kv" id="metricRAM">RAM: </span>
+            </div>
+          </div>
+        </div>
+        <div id="ipList" class="list"></div>
+      </aside>
+
+      <main>
+        <section class="panel panel--grid">
+          <div class="main-head">
+            <div class="actions" id="topActions">
+              <div class="action-group" data-cat="all">
+                <span class="label">All</span>
+                <span class="size" id="size-all">—</span>
+                <button class="btn sm" data-dl="json" data-cat="all">JSON</button>
+                <button class="btn sm" data-dl="pdf" data-cat="all">PDF</button>
+                <button class="btn sm warn" data-del data-cat="all">
+                  Delete
+                </button>
+              </div>
+            </div>
+            <div id="classBar" class="classbar" aria-live="polite"></div>
+          </div>
+          <div id="grid" class="grid"></div>
+        </section>
+
+        <section class="panel capture-home-panel" id="captureHomePanel">
+          <div class="capture-home-head">
+            <div>
+              <div class="caption">Capture Logs</div>
+              <p class="capture-home-hint">
+                Monitor webhook-style requests captured via shareable URLs. Use the Capture tab for full management.
+              </p>
+            </div>
+            <div class="capture-home-actions">
+              <select id="captureHomeSelect" class="input" aria-label="Filter capture links">
+                <option value="">All links</option>
+              </select>
+              <button class="btn ghost sm" id="btnRefreshCaptureHome">Refresh</button>
+              <button class="btn sm" id="btnOpenCapturePage">Manage</button>
+            </div>
+          </div>
+          <div id="captureHomeList" class="capture-log-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <div class="wrap page single" id="pageScanner">
+      <main>
+        <div class="main-head">
+          <div class="caption">Active Scanner</div>
+          <p class="scanner-hint">
+            Schedule outbound probes that periodically send HTTP requests to a target and record
+            each response. Use this to monitor crawler behavior, regression impacts, or persistence
+            of downstream fixes.
+          </p>
+        </div>
+        <section class="scanner-panel">
+          <form id="scannerForm" class="scanner-form" autocomplete="off">
+            <div class="form-row">
+              <label for="scannerName">Job name
+                <input
+                  id="scannerName"
+                  class="input"
+                  type="text"
+                  name="name"
+                  maxlength="120"
+                  placeholder="Preview monitor"
+                />
+              </label>
+              <label for="scannerMethod">Method
+                <select id="scannerMethod" class="input" name="method">
+                  <option value="GET" selected>GET</option>
+                  <option value="HEAD">HEAD</option>
+                  <option value="POST">POST</option>
+                  <option value="PUT">PUT</option>
+                  <option value="DELETE">DELETE</option>
+                </select>
+              </label>
+              <label for="scannerInterval">Interval (seconds)
+                <input
+                  id="scannerInterval"
+                  class="input"
+                  type="number"
+                  name="interval"
+                  min="15"
+                  max="86400"
+                  step="1"
+                  value="60"
+                  required
+                />
+              </label>
+            </div>
+            <label for="scannerURL">Target URL
+              <input
+                id="scannerURL"
+                class="input"
+                type="url"
+                name="url"
+                required
+                placeholder="https://example.com/endpoint"
+                spellcheck="false"
+              />
+            </label>
+            <div class="form-row">
+              <label for="scannerContentType">Content-Type
+                <input
+                  id="scannerContentType"
+                  class="input"
+                  type="text"
+                  name="contentType"
+                  placeholder="text/plain; charset=utf-8"
+                />
+              </label>
+            </div>
+            <label for="scannerBody">Request body (optional)
+              <textarea
+                id="scannerBody"
+                class="input scanner-body"
+                name="body"
+                rows="4"
+                placeholder="JSON payload, form body, or other custom content"
+              ></textarea>
+            </label>
+            <div class="scanner-actions">
+              <label class="scanner-active" for="scannerActive">
+                <input id="scannerActive" type="checkbox" name="active" checked />
+                Start immediately after saving
+              </label>
+              <button class="btn" type="submit">Add job</button>
+            </div>
+          </form>
+          <div
+            id="scannerMessage"
+            class="payload-message scanner-message"
+            role="status"
+            aria-live="polite"
+          ></div>
+        </section>
+        <section class="scanner-columns" aria-live="polite">
+          <div class="scanner-list-wrap">
+            <div class="scanner-subhead">
+              <div class="caption">Job Manager</div>
+              <p class="scanner-hint">
+                Each job fires on its own interval with the configured method and optional body.
+                Pause, resume, or delete jobs as needed.
+              </p>
+            </div>
+            <div class="scanner-list-actions">
+              <button class="btn ghost sm" id="btnDownloadJobs" title="Download jobs as JSON">
+                📥 Export Jobs
+              </button>
+              <button class="btn ghost sm warn" id="btnClearJobs" title="Clear all jobs (with confirmation)">
+                🗑️ Clear All
+              </button>
+            </div>
+            <div id="scannerJobs" class="scanner-list"></div>
+          </div>
+          <div class="scanner-results-wrap">
+            <div class="scanner-subhead">
+              <div class="caption">Results Console</div>
+            </div>
+            <div class="scanner-results-toolbar">
+              <label class="scanner-checkbox">
+                <input type="checkbox" id="scannerAutoRefresh" checked />
+                Auto refresh
+              </label>
+              <select id="scannerFilter" class="input" aria-label="Filter by job">
+                <option value="">All jobs</option>
+              </select>
+              <input id="scannerSearch" class="input" type="text" placeholder="Search logs..." />
+              <button class="btn ghost sm" id="btnDownloadLogs" title="Download logs">
+                📥 Export
+              </button>
+              <button class="btn ghost sm warn" id="btnClearLogs" title="Clear all logs">
+                🗑️ Clear
+              </button>
+            </div>
+            <div id="scannerResults" class="scanner-results-list"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="wrap page single" id="pageCapture">
+      <main>
+        <div class="main-head">
+          <div class="caption">Capture Links</div>
+          <p class="capture-hint">
+            Generate webhook-style endpoints, forward them to external systems, and inspect every request captured by LinkPeek.
+          </p>
+        </div>
+        <section class="capture-shell">
+          <div class="panel capture-panel">
+            <div class="capture-panel-head">
+              <h2>Links</h2>
+            </div>
+            <form id="captureForm" class="capture-form" autocomplete="off">
+              <label for="captureLabel">Label</label>
+              <input id="captureLabel" class="input" name="label" type="text" maxlength="80" placeholder="Preview crawler hook" />
+              <button class="btn" type="submit">Create link</button>
+            </form>
+            <div id="captureMessage" class="payload-message" role="status" aria-live="polite"></div>
+            <div id="captureList" class="capture-list"></div>
+          </div>
+          <div class="panel capture-panel">
+            <div class="capture-panel-head capture-log-head">
+              <div>
+                <h2>Request Log</h2>
+                <p>Select a link to inspect incoming requests. Logs update automatically while this tab is active.</p>
+              </div>
+              <div class="capture-log-actions">
+                <select id="captureSelect" class="input" aria-label="Select capture link">
+                  <option value="">Select link</option>
+                </select>
+                <button class="btn ghost sm" id="btnCaptureRefresh">Refresh</button>
+                <button class="btn ghost sm" id="btnCaptureDownload">Download</button>
+                <button class="btn ghost sm warn" id="btnCaptureClear">Clear</button>
+              </div>
+            </div>
+            <div id="captureLogList" class="capture-log-list"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Tunnel Page -->
+    <div class="wrap page single" id="pageTunnel">
+      <main>
+        <div class="main-head">
+          <div class="caption">Tunnel</div>
+        </div>
+        <div id="tunnelGrid" class="grid"></div>
+      </main>
+    </div>
+
+    <!-- Payload Lab -->
+    <div class="wrap page single" id="pagePayload">
+      <main>
+        <div class="main-head payload-head">
+          <div class="caption">Payload Lab</div>
+          <p class="payload-hint">
+            Generate deterministic spectrum variants in 10-link windows. Use the
+            spectrum controls on each card to step seeds, copy links, or share
+            entire batches.
+          </p>
+          <form id="payloadForm" class="payload-form" autocomplete="off">
+            <label class="sr-only" for="payloadFile">Payload file</label>
+            <input
+              id="payloadFile"
+              class="input"
+              type="file"
+              name="file"
+              required
+              accept="*/*"
+            />
+            <input
+              id="payloadName"
+              class="input"
+              type="text"
+              name="name"
+              placeholder="Display name (optional)"
+              maxlength="80"
+            />
+            <input
+              id="payloadCategory"
+              class="input"
+              type="text"
+              name="category"
+              placeholder="Category tag"
+              maxlength="40"
+            />
+            <button class="btn" type="submit">Upload</button>
+          </form>
+        </div>
+        <div
+          id="payloadMessage"
+          class="payload-message"
+          role="status"
+          aria-live="polite"
+        ></div>
+        <div
+          id="payloadTunnelStatus"
+          class="payload-banner"
+          role="status"
+          aria-live="polite"
+        ></div>
+        <div id="payloadList" class="payload-list" aria-live="polite"></div>
+
+        <section class="snippet-lab" aria-labelledby="snippetLabTitle">
+          <div class="snippet-head">
+            <h2 id="snippetLabTitle">Snippet Preview</h2>
+            <p class="snippet-hint">
+              Paste shell commands or code to mint a one-off preview URL. The
+              snippet is kept in-memory only; share the generated link to see
+              how downstream systems render it.
+            </p>
+          </div>
+          <form id="snippetForm" class="snippet-form" autocomplete="off">
+            <textarea
+              id="snippetContent"
+              class="input snippet-input"
+              name="content"
+              placeholder="# Deploy script\necho \"Hello\""
+              rows="8"
+              required
+            ></textarea>
+            <div class="snippet-controls">
+              <div class="snippet-field">
+                <label for="snippetMime">MIME-Type</label>
+                <select id="snippetMime" name="mime" class="input">
+                  <option value="text/plain; charset=utf-8" selected>
+                    text/plain
+                  </option>
+                  <option value="text/x-shellscript; charset=utf-8">
+                    shell script
+                  </option>
+                  <option value="application/javascript; charset=utf-8">
+                    JavaScript
+                  </option>
+                  <option value="text/html; charset=utf-8">HTML</option>
+                  <option value="application/json; charset=utf-8">JSON</option>
+                </select>
+              </div>
+              <div class="snippet-field">
+                <label for="snippetFilename">Filename (optional)</label>
+                <input
+                  id="snippetFilename"
+                  class="input"
+                  type="text"
+                  name="filename"
+                  placeholder="snippet.sh"
+                  maxlength="120"
+                />
+              </div>
+              <button class="btn" type="submit">Create link</button>
+            </div>
+          </form>
+          <div
+            id="snippetMessage"
+            class="payload-message"
+            role="status"
+            aria-live="polite"
+          ></div>
+          <div id="snippetResult" class="snippet-result" aria-live="polite"></div>
+        </section>
+      </main>
+    </div>
+
+    <div class="wrap page single" id="pageRetry">
+      <main>
+        <div class="retry-layout">
+          <section class="panel retry-panel">
+            <div class="retry-head">
+              <div>
+                <div class="caption">Retry Lab</div>
+                <h2>Explore Retry Scenarios</h2>
+              </div>
+              <p class="retry-hint">
+                Trigger network anomalies to study how clients respond. Open a scenario in a new tab
+                or copy its direct link for external testing.
+              </p>
+            </div>
+            <div id="retryScenarioList" class="retry-scenario-list" aria-live="polite"></div>
+          </section>
+          <aside class="panel retry-side">
+            <div class="retry-stats-head">
+              <div class="caption">Live Metrics</div>
+              <h3>Scenario Stats</h3>
+            </div>
+            <div id="retryStats" class="retry-stats" aria-live="polite"></div>
+            <section class="retry-log" aria-label="Recent retry activity">
+              <div class="retry-log-head">
+                <div>
+                  <div class="caption">Recent Hits</div>
+                  <h3>Scenario Activity</h3>
+                </div>
+                <div class="retry-log-actions">
+                  <select id="retryLogFilter" class="input" aria-label="Filter retry log by scenario">
+                    <option value="">All scenarios</option>
+                  </select>
+                  <button class="btn ghost sm" id="retryLogRefresh" type="button">Refresh</button>
+                  <button class="btn ghost sm warn" id="retryLogClear" type="button">Clear</button>
+                </div>
+              </div>
+              <div
+                id="retryLogMessage"
+                class="payload-message"
+                role="status"
+                aria-live="polite"
+              ></div>
+              <div id="retryLogList" class="retry-log-list" aria-live="polite"></div>
+            </section>
+          </aside>
+        </div>
+      </main>
+    </div>
+
+    <div id="authOverlay" class="auth-overlay is-active" data-state="locked">
+      <section class="auth-panel" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+        <header class="auth-head">
+          <h1 id="authTitle">LinkPeek</h1>
+          <p>Enter the access password to continue.</p>
+        </header>
+        <form class="auth-form" id="authForm" autocomplete="off">
+          <label for="authPassword">Password</label>
+          <div class="auth-input">
+            <input
+              id="authPassword"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              spellcheck="false"
+              placeholder="••••••••"
+              required
+            />
+            <button type="button" class="auth-toggle" aria-label="Toggle password visibility"></button>
+          </div>
+          <p class="auth-error" id="authError" role="alert" aria-live="assertive"></p>
+          <button type="submit" class="auth-submit">Unlock</button>
+        </form>
+        <footer class="auth-meta">
+          <span id="authTimestamp">Protected access</span>
+        </footer>
+      </section>
+    </div>
+    <script defer src="/static/auth.js"></script>
+    <script type="module" src="/static/js/app.js"></script>
+  </body>
+</html>

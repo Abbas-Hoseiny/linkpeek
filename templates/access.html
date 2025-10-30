@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LinkPeek · Access</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/access.css" />
+  </head>
+  <body class="access-body">
+    <header class="access-header">
+      <div class="access-brand">
+        <span class="access-title">LinkPeek Access</span>
+      </div>
+      <nav class="access-nav">
+        <a class="btn ghost" href="/">Dashboard</a>
+        {{if .LoggedIn}}
+        <form class="logout-form" action="/logout" method="post">
+          <button type="submit" class="btn warn">Logout</button>
+        </form>
+        {{else}}
+        <a class="btn" href="/?next=/access">Sign in</a>
+        {{end}}
+      </nav>
+    </header>
+    <main class="access-main">
+      <div class="access-shell">
+        {{if .FlashMessage}}
+        <div class="access-alert success" role="status">{{.FlashMessage}}</div>
+        {{end}} {{if .MustChange}}
+        <div class="access-alert notice" role="alert">
+          Default credentials detected. Update the password to continue.
+        </div>
+        {{end}}
+        <section class="access-card">
+          <header>
+            <h1>
+              {{if .MustChange}}Change default password{{else}}Update access
+              password{{end}}
+            </h1>
+            <p class="access-hint">
+              {{if .MustChange}} For security, replace the default
+              administrative password before using LinkPeek. {{else}} Update the
+              administrative password used to unlock LinkPeek. {{end}}
+            </p>
+          </header>
+          <p class="access-note">{{.Requirements}}</p>
+          {{if .ErrorMessage}}
+          <div class="access-alert error" role="alert">{{.ErrorMessage}}</div>
+          {{end}}
+          <form
+            id="changeForm"
+            class="access-form"
+            action="/api/auth/change"
+            method="post"
+            autocomplete="off"
+          >
+            <label for="changeCurrent">Current password</label>
+            <input
+              id="changeCurrent"
+              name="current"
+              type="password"
+              autocomplete="current-password"
+              required
+              class="input"
+              placeholder="••••••••"
+            />
+            <label for="changeNext">New password</label>
+            <input
+              id="changeNext"
+              name="next"
+              type="password"
+              minlength="8"
+              autocomplete="new-password"
+              required
+              class="input"
+              placeholder="••••••••"
+            />
+            <label for="changeConfirm">Confirm new password</label>
+            <input
+              id="changeConfirm"
+              name="confirm"
+              type="password"
+              minlength="8"
+              autocomplete="new-password"
+              required
+              class="input"
+              placeholder="••••••••"
+            />
+            <p
+              class="form-status"
+              id="changeStatus"
+              role="alert"
+              aria-live="assertive"
+            ></p>
+            <div class="access-actions">
+              <button type="submit" class="btn primary">
+                {{if .MustChange}}Save new password{{else}}Update
+                password{{end}}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </main>
+    <script defer src="/static/access.js"></script>
+  </body>
+</html>

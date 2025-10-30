@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LinkPeek · Login</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/login.css" />
+  </head>
+  <body>
+    <main class="login-root">
+      <div class="login-bg" aria-hidden="true"></div>
+      <section
+        class="login-card"
+        data-state="{{if .Error}}error{{else}}idle{{end}}"
+      >
+        <div class="login-glass" aria-hidden="true"></div>
+        <header class="login-head">
+          <h1>LinkPeek</h1>
+          <p>Enter the access password to continue.</p>
+        </header>
+        {{if .Error}}
+        <div class="login-alert" role="alert">{{.Error}}</div>
+        {{end}}
+        <form
+          method="post"
+          action="/login"
+          class="login-form"
+          autocomplete="off"
+          novalidate
+        >
+          {{if .Next}}
+          <input type="hidden" name="next" value="{{.Next}}" />
+          {{end}}
+          <label for="password">Password</label>
+          <div class="password-wrap">
+            <input
+              id="password"
+              name="password"
+              type="password"
+              inputmode="text"
+              autocomplete="current-password"
+              placeholder="********"
+              required
+              autofocus
+            />
+            <button
+              type="button"
+              class="reveal"
+              aria-label="Toggle password visibility"
+            ></button>
+          </div>
+          <button type="submit" class="login-btn">Unlock</button>
+        </form>
+        <footer class="login-meta">
+          <span>Protected access · {{.Now}}</span>
+        </footer>
+      </section>
+    </main>
+    <script defer src="/static/login.js"></script>
+  </body>
+</html>

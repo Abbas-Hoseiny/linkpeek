@@ -1,0 +1,33 @@
+# Binaries
+/server
+/linkpeek
+/*.exe
+/*.exe~
+/*.dll
+/*.so
+/*.dylib
+
+# Build output
+/dist/
+/bin/
+*.out
+*.test
+
+# Go modules/cache
+/vendor/
+/.cache/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local data
+/data/
+*.log
+cloudflared.log
+
+# OS files
+.DS_Store
+Thumbs.db
