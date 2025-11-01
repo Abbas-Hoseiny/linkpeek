@@ -388,6 +388,15 @@ main {
   padding: 0 0 var(--space-lg);
   border-bottom: 1px solid var(--line);
 }
+.doc-link-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
+.doc-link {
+  text-decoration: none;
+}
 .classbar {
   display: flex;
   gap: 8px;
@@ -539,6 +548,12 @@ main {
   justify-content: space-between;
   padding: 10px 12px;
   border-bottom: 1px solid var(--line);
+}
+.tile-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
 }
 .box {
   background: var(--terminal-bg);
@@ -693,6 +708,8 @@ a:hover {
 :root[data-theme="light"] .payload-list,
 :root[data-theme="light"] .retry-card,
 :root[data-theme="light"] .retry-log-list,
+:root[data-theme="light"] .payload-log-list,
+:root[data-theme="light"] .tunnel-log-list,
 :root[data-theme="light"] .capture-log-list,
 :root[data-theme="light"] .list,
 :root[data-theme="light"] .grid > *,
@@ -745,8 +762,38 @@ a:hover {
   color: var(--text-primary);
 }
 
+:root[data-theme="light"] .tunnel-log-entry {
+  background: rgba(148, 163, 184, 0.16);
+  border-color: rgba(148, 163, 184, 0.4);
+  color: var(--text-primary);
+}
+
+:root[data-theme="light"] .payload-log-entry {
+  background: rgba(148, 163, 184, 0.16);
+  border-color: rgba(148, 163, 184, 0.4);
+  color: var(--text-primary);
+}
+
 :root[data-theme="light"] .retry-log-entry header span {
   color: var(--text-secondary);
+}
+
+:root[data-theme="light"] .tunnel-log-entry header span {
+  color: var(--text-secondary);
+}
+
+:root[data-theme="light"] .payload-log-entry header span {
+  color: var(--text-secondary);
+}
+
+:root[data-theme="light"] .tunnel-log-status {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(148, 163, 184, 0.2);
+}
+
+:root[data-theme="light"] .payload-log-status {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(148, 163, 184, 0.2);
 }
 
 :root[data-theme="light"] .ip-count {
@@ -1373,6 +1420,246 @@ a:hover {
 }
 
 .retry-log-empty {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.tunnel-log-list {
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  background: var(--surface-elevated);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.tunnel-log-entry {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm);
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.tunnel-log-entry.is-new {
+  border-color: rgba(76, 141, 255, 0.4);
+  box-shadow: 0 0 0 2px rgba(76, 141, 255, 0.18);
+}
+
+.tunnel-log-entry header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tunnel-log-time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 110px;
+}
+
+.tunnel-log-method {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.tunnel-log-path {
+  flex: 1 1 auto;
+  min-width: 120px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.tunnel-log-status {
+  margin-left: auto;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.tunnel-log-status.is-success {
+  color: var(--success);
+  border-color: rgba(45, 212, 191, 0.35);
+  background: rgba(45, 212, 191, 0.12);
+}
+
+.tunnel-log-status.is-redirect {
+  color: var(--accent-secondary);
+  border-color: rgba(93, 211, 255, 0.35);
+  background: rgba(93, 211, 255, 0.12);
+}
+
+.tunnel-log-status.is-warn {
+  color: var(--warning);
+  border-color: rgba(250, 204, 21, 0.35);
+  background: rgba(250, 204, 21, 0.12);
+}
+
+.tunnel-log-status.is-error {
+  color: var(--error);
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.tunnel-log-status.is-info {
+  color: var(--text-secondary);
+}
+
+.tunnel-log-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.tunnel-log-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tunnel-log-host {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.tunnel-log-empty {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.payload-tiles {
+  margin-top: var(--space-xl);
+  display: grid;
+  gap: var(--space-xl);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.payload-log-list {
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  background: var(--surface-elevated);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.payload-log-entry {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm);
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.payload-log-entry.is-new {
+  border-color: rgba(76, 141, 255, 0.4);
+  box-shadow: 0 0 0 2px rgba(76, 141, 255, 0.18);
+}
+
+.payload-log-entry header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.payload-log-time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 110px;
+}
+
+.payload-log-method {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.payload-log-path {
+  flex: 1 1 auto;
+  min-width: 120px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.payload-log-status {
+  margin-left: auto;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.payload-log-status.is-success {
+  color: var(--success);
+  border-color: rgba(45, 212, 191, 0.35);
+  background: rgba(45, 212, 191, 0.12);
+}
+
+.payload-log-status.is-redirect {
+  color: var(--accent-secondary);
+  border-color: rgba(93, 211, 255, 0.35);
+  background: rgba(93, 211, 255, 0.12);
+}
+
+.payload-log-status.is-warn {
+  color: var(--warning);
+  border-color: rgba(250, 204, 21, 0.35);
+  background: rgba(250, 204, 21, 0.12);
+}
+
+.payload-log-status.is-error {
+  color: var(--error);
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.payload-log-status.is-info {
+  color: var(--text-secondary);
+}
+
+.payload-log-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.payload-log-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.payload-log-message {
+  margin-bottom: var(--space-sm);
+}
+
+.payload-log-empty {
   margin: 0;
   text-align: center;
   font-size: 13px;
@@ -2377,6 +2664,22 @@ aside {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-sm);
+}
+.download-group,
+.capture-download-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.payload-download-group {
+  margin-top: var(--space-sm);
+}
+.payload-log-tile .payload-download-group {
+  margin-top: 0;
+}
+.payload-log-tile .tile-actions {
+  justify-content: flex-end;
 }
 .capture-log-list {
   display: flex;

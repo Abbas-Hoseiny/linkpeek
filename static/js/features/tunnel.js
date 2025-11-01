@@ -15,6 +15,8 @@ const HISTORY_LIMIT = 200;
 const FAST_REFRESH_INTERVAL = 5000;
 const FALLBACK_REFRESH_INTERVAL = 60000;
 const RESTART_RETRIES = 10;
+const TUNNEL_EXPORT_LIMIT = 300;
+const TUNNEL_LOG_LIMIT = 150;
 
 let appState = { currentTunnelURL: "", tunnelActive: null };
 let rt = realtimeClient;
@@ -23,12 +25,15 @@ let dom = {};
 let statusCache = null;
 let historyCache = [];
 let loadedOnce = false;
+let tunnelLogEntries = [];
 
 let fastTimer = null;
 let fallbackTimer = null;
 
 let unsubscribeStatus = null;
 let unsubscribeHistory = null;
+let unsubscribeLogs = null;
+let logMessageTimer = null;
 
 export function init(context = {}) {
   appState = context.state || appState;
@@ -57,6 +62,7 @@ function ensureTunnelPage(force = false) {
     loadedOnce = true;
     loadTunnelStatus();
     loadTunnelHistory();
+    loadTunnelLogs();
   } else {
     loadTunnelStatus({ silent: true });
     loadTunnelHistory({ silent: true });
@@ -90,7 +96,43 @@ function ensureTiles() {
     dom.grid.appendChild(dom.historyTile);
   }
 
+  if (!dom.logsTile) {
+    dom.logsTile = createTile("tunnel-logs", "Logs", "Loading…");
+    const head = dom.logsTile.querySelector(".tile-head");
+    dom.logsDownloadGroup = createTunnelDownloadGroup();
+    dom.logsRefreshButton = createHeadButton(
+      "Refresh",
+      () => handleTunnelLogRefresh(),
+      "btn ghost sm"
+    );
+    head.append(dom.logsDownloadGroup, dom.logsRefreshButton);
+    if (!dom.logsDownloadGroup.dataset.bound) {
+      dom.logsDownloadGroup.addEventListener(
+        "click",
+        handleTunnelDownloadClick
+      );
+      dom.logsDownloadGroup.dataset.bound = "1";
+    }
+    const box = dom.logsTile.querySelector(".box");
+    if (box) {
+      box.innerHTML = "";
+      dom.logsMessage = document.createElement("div");
+      dom.logsMessage.className = "tunnel-log-message payload-message";
+      dom.logsMessage.setAttribute("role", "status");
+      dom.logsMessage.setAttribute("aria-live", "polite");
+      dom.logsMessage.hidden = true;
+      box.appendChild(dom.logsMessage);
+
+      dom.logsList = document.createElement("div");
+      dom.logsList.className = "tunnel-log-list";
+      dom.logsList.innerHTML = '<p class="tunnel-log-empty">Loading…</p>';
+      box.appendChild(dom.logsList);
+    }
+    dom.grid.appendChild(dom.logsTile);
+  }
+
   updateCopyButtonState();
+  renderTunnelLogs();
 }
 
 function subscribeRealtime() {
@@ -114,6 +156,14 @@ function subscribeRealtime() {
         historyCache = items;
         renderTunnelHistory();
       },
+      { snapshot: true }
+    );
+  }
+
+  if (!unsubscribeLogs) {
+    unsubscribeLogs = rt.subscribe(
+      "log.event",
+      (payload, meta = {}) => handleTunnelLogEvent(payload, meta),
       { snapshot: true }
     );
   }
@@ -361,6 +411,168 @@ async function handleClearHistory() {
   }
 }
 
+async function loadTunnelLogs(options = {}) {
+  if (!isPageActive() && !options.force) return;
+  try {
+    const params = new URLSearchParams();
+    params.set("class", "tunnel");
+    params.set("n", "200");
+    const data = await jget(`/api/events?${params.toString()}`);
+    const raw = extractItems(data);
+    const items = raw.map(normalizeTunnelEvent).filter(Boolean);
+    items.sort((a, b) => b.ts - a.ts);
+    tunnelLogEntries = items.slice(0, TUNNEL_LOG_LIMIT);
+    renderTunnelLogs();
+    if (!options.silent) {
+      setTunnelLogMessage("", "info");
+    }
+  } catch (error) {
+    if (!options.silent) {
+      const message = error?.message || "Failed to load tunnel logs.";
+      setTunnelLogMessage(message, "error", 3600);
+    }
+  }
+}
+
+function handleTunnelLogEvent(payload, meta = {}) {
+  if (meta?.type === "snapshot") {
+    const snapshot = extractItems(payload)
+      .map((item) => normalizeTunnelEvent(item))
+      .filter(Boolean);
+    snapshot.sort((a, b) => b.ts - a.ts);
+    tunnelLogEntries = snapshot.slice(0, TUNNEL_LOG_LIMIT);
+    renderTunnelLogs();
+    return;
+  }
+
+  const entry = normalizeTunnelEvent(payload);
+  if (!entry) return;
+  const existingIndex = tunnelLogEntries.findIndex(
+    (item) => item.id === entry.id
+  );
+  if (existingIndex !== -1) {
+    tunnelLogEntries.splice(existingIndex, 1);
+  }
+  tunnelLogEntries.unshift(entry);
+  tunnelLogEntries.sort((a, b) => b.ts - a.ts);
+  if (tunnelLogEntries.length > TUNNEL_LOG_LIMIT) {
+    tunnelLogEntries.length = TUNNEL_LOG_LIMIT;
+  }
+  renderTunnelLogs({ highlightId: entry.id });
+}
+
+function normalizeTunnelEvent(raw) {
+  if (!raw) return null;
+  const cls = String(raw.class || raw.Class || "").toLowerCase();
+  const path = String(raw.path || "");
+  const hostInfo = detectTunnelHost(raw);
+  const isTunnelClass = cls === "tunnel";
+  const relevantByHost = hostInfo.isTunnel && isTunnelRelevantPath(path);
+  if (!isTunnelClass && !relevantByHost) return null;
+
+  let tsValue = Date.now();
+  if (raw.ts) {
+    const parsed = new Date(raw.ts).getTime();
+    if (Number.isFinite(parsed)) {
+      tsValue = parsed;
+    }
+  }
+
+  const method = String(raw.method || "").toUpperCase() || "GET";
+  const rawQuery = String(raw.query || "");
+  const query = rawQuery.startsWith("?") ? rawQuery.slice(1) : rawQuery;
+  const status = Number(raw.status || 0);
+  const durationMs = Number(
+    raw.duration_ms || raw.durationMs || raw.duration || 0
+  );
+  const remoteIP = String(raw.remote_ip || raw.remoteIp || "");
+  const host = hostInfo.host || "";
+  const requestID = String(raw.request_id || raw.requestId || "").trim();
+  const fallbackId = `${tsValue}-${method}-${path}-${remoteIP}-${query}-${host}`;
+  const id = requestID || fallbackId;
+
+  return {
+    id,
+    ts: tsValue,
+    method,
+    path,
+    query,
+    status,
+    durationMs,
+    remoteIP,
+    host,
+  };
+}
+
+function renderTunnelLogs(options = {}) {
+  if (!dom.logsList) return;
+  if (!tunnelLogEntries.length) {
+    dom.logsList.innerHTML =
+      '<p class="tunnel-log-empty">No tunnel events yet.</p>';
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  tunnelLogEntries.forEach((entry) => {
+    const node = createTunnelLogEntry(entry);
+    if (options.highlightId && entry.id === options.highlightId) {
+      node.classList.add("is-new");
+      window.setTimeout(() => node.classList.remove("is-new"), 1200);
+    }
+    fragment.appendChild(node);
+  });
+
+  dom.logsList.replaceChildren(fragment);
+}
+
+function createTunnelLogEntry(entry) {
+  const node = document.createElement("article");
+  node.className = "tunnel-log-entry";
+  const timestamp = formatDateTime(entry.ts);
+  const status = entry.status > 0 ? String(entry.status) : "—";
+  const method = entry.method || "GET";
+  const path = entry.query
+    ? `${entry.path || ""}?${entry.query}`
+    : entry.path || "";
+  const remoteIP = entry.remoteIP || "—";
+  const duration = formatLogDuration(entry.durationMs);
+  const statusClass = getTunnelStatusClass(entry.status);
+  const host = entry.host || "—";
+
+  node.innerHTML = `
+    <header>
+      <span class="tunnel-log-time">${escapeHTML(timestamp)}</span>
+      <span class="tunnel-log-method">${escapeHTML(method)}</span>
+      <span class="tunnel-log-path">${escapeHTML(path)}</span>
+      <span class="tunnel-log-status${
+        statusClass ? ` ${statusClass}` : ""
+      }">${escapeHTML(status)}</span>
+    </header>
+    <div class="tunnel-log-meta">
+      <span class="tunnel-log-host" title="Tunnel host">${escapeHTML(
+        host
+      )}</span>
+      <span class="tunnel-log-ip" title="Remote IP">IP ${escapeHTML(
+        remoteIP
+      )}</span>
+      <span class="tunnel-log-duration" title="Request duration">${escapeHTML(
+        duration
+      )}</span>
+    </div>
+  `;
+  return node;
+}
+
+function handleTunnelLogRefresh() {
+  if (rt && typeof rt.requestSnapshots === "function") {
+    setTunnelLogMessage("Refreshing tunnel logs…", "info", 2000);
+    rt.requestSnapshots("log.event");
+    return;
+  }
+  setTunnelLogMessage("Reloading tunnel logs…", "info", 2000);
+  loadTunnelLogs({ silent: true, force: true });
+}
+
 function createTile(id, title, content) {
   const tile = document.createElement("section");
   tile.className = "tile";
@@ -378,6 +590,48 @@ function createHeadButton(label, handler, className = "btn") {
   btn.textContent = label;
   btn.addEventListener("click", handler);
   return btn;
+}
+
+function createTunnelDownloadGroup() {
+  const group = document.createElement("div");
+  group.className = "download-group";
+  group.id = "tunnelDownloadGroup";
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", "Download tunnel logs");
+
+  const formats = [
+    { key: "jsonl", label: "NDJSON" },
+    { key: "json", label: "JSON" },
+    { key: "pdf", label: "PDF" },
+  ];
+
+  formats.forEach(({ key, label }) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn ghost sm";
+    btn.textContent = label;
+    btn.setAttribute("data-tunnel-download", key);
+    group.appendChild(btn);
+  });
+
+  return group;
+}
+
+function handleTunnelDownloadClick(event) {
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  if (!target) return;
+  const button = target.closest("[data-tunnel-download]");
+  if (!button) return;
+
+  const format = (
+    button.getAttribute("data-tunnel-download") || "json"
+  ).toLowerCase();
+  const params = new URLSearchParams();
+  params.set("class", "tunnel");
+  params.set("format", format);
+  params.set("limit", String(TUNNEL_EXPORT_LIMIT));
+  setTunnelLogMessage("Preparing export…", "info", 2000);
+  window.open(`/api/events/export?${params.toString()}`, "_blank", "noopener");
 }
 
 function formatDuration(seconds) {
@@ -409,4 +663,126 @@ function isRealtimeConnected() {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTunnelRelevantPath(path) {
+  if (!path || typeof path !== "string") return true;
+  let normalized = path.trim().toLowerCase();
+  if (normalized === "" || normalized === "/") return true;
+  while (normalized.endsWith("/") && normalized.length > 1) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized === "/alpha";
+}
+
+function formatLogDuration(durationMs) {
+  const value = Number.isFinite(durationMs) ? durationMs : 0;
+  if (value <= 0) return "—";
+  if (value < 1000) return `${Math.round(value)} ms`;
+  if (value < 60000) return `${(value / 1000).toFixed(1)} s`;
+  const minutes = value / 60000;
+  return `${minutes.toFixed(1)} min`;
+}
+
+function getTunnelStatusClass(status) {
+  const value = Number(status);
+  if (!Number.isFinite(value) || value <= 0) return "";
+  if (value >= 500) return "is-error";
+  if (value >= 400) return "is-warn";
+  if (value >= 300) return "is-redirect";
+  if (value >= 200) return "is-success";
+  return "is-info";
+}
+
+function detectTunnelHost(raw = {}) {
+  const headers = normalizeHeaderMap(raw.headers || raw.Headers);
+  const storedHost = extractHostFromValue(headers["tunnel-host"]);
+  const hostHeader = extractHostFromValue(headers.host || raw.host || raw.Host);
+  const forwardedHost = extractHostFromValue(headers["x-forwarded-host"]);
+  const originHost = extractHostFromValue(
+    headers.origin || raw.origin || raw.Origin
+  );
+  const refererHost = extractHostFromValue(
+    headers.referer || raw.referer || raw.Referer
+  );
+
+  const candidates = [
+    storedHost,
+    hostHeader,
+    forwardedHost,
+    originHost,
+    refererHost,
+  ].filter(Boolean);
+
+  const tunnelCandidate =
+    candidates.find((value) =>
+      value.toLowerCase().endsWith("trycloudflare.com")
+    ) || "";
+
+  return { host: tunnelCandidate, isTunnel: Boolean(tunnelCandidate) };
+}
+
+function normalizeHeaderMap(headers) {
+  if (!headers || typeof headers !== "object") return {};
+  const map = {};
+  Object.entries(headers).forEach(([key, value]) => {
+    if (!key) return;
+    map[key.toLowerCase()] = value;
+  });
+  return map;
+}
+
+function extractHostFromValue(value) {
+  if (!value) return "";
+  const raw = String(value).trim();
+  if (!raw) return "";
+  const first = raw.split(",")[0].trim();
+  if (!first) return "";
+  if (first.includes("://")) {
+    try {
+      const url = new URL(first);
+      return url.host || "";
+    } catch (error) {
+      // fall through if parsing fails
+    }
+  }
+  const cleaned = first.replace(/^https?:\/\//i, "");
+  const slashIndex = cleaned.indexOf("/");
+  if (slashIndex !== -1) {
+    return cleaned.slice(0, slashIndex).trim();
+  }
+  return cleaned.trim();
+}
+
+function setTunnelLogMessage(text, variant = "info", ttl = 0) {
+  if (!dom.logsMessage) return;
+  if (logMessageTimer) {
+    window.clearTimeout(logMessageTimer);
+    logMessageTimer = null;
+  }
+
+  const message = String(text || "");
+  dom.logsMessage.classList.remove("show", "is-info", "is-error", "is-success");
+
+  if (!message.trim()) {
+    dom.logsMessage.textContent = "";
+    dom.logsMessage.hidden = true;
+    return;
+  }
+
+  dom.logsMessage.hidden = false;
+  dom.logsMessage.textContent = message;
+  const styleClass =
+    variant === "error"
+      ? "is-error"
+      : variant === "success"
+      ? "is-success"
+      : "is-info";
+  dom.logsMessage.classList.add("show", styleClass);
+
+  if (ttl > 0 && variant !== "error") {
+    logMessageTimer = window.setTimeout(() => {
+      setTunnelLogMessage("");
+    }, ttl);
+  }
 }

@@ -9,9 +9,14 @@
 
 # Build output
 /dist/
+/websites/astro/dist/
 /bin/
 *.out
 *.test
+
+# JS packages
+node_modules/
+**/node_modules/
 
 # Go modules/cache
 /vendor/

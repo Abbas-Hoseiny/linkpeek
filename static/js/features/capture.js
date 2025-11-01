@@ -52,7 +52,6 @@ export function init(context = {}) {
     homeList: document.getElementById("captureHomeList"),
     homeSelect: document.getElementById("captureHomeSelect"),
     homeRefresh: document.getElementById("btnRefreshCaptureHome"),
-    manageButton: document.getElementById("btnOpenCapturePage"),
     page: $("#pageCapture"),
     list: document.getElementById("captureList"),
     form: document.getElementById("captureForm"),
@@ -61,7 +60,7 @@ export function init(context = {}) {
     select: document.getElementById("captureSelect"),
     logList: document.getElementById("captureLogList"),
     refresh: document.getElementById("btnCaptureRefresh"),
-    download: document.getElementById("btnCaptureDownload"),
+    downloadGroup: document.getElementById("captureDownloadGroup"),
     clear: document.getElementById("btnCaptureClear"),
   };
 
@@ -103,16 +102,9 @@ function bindEvents() {
     dom.refresh.dataset.bound = "1";
   }
 
-  if (dom.download && !dom.download.dataset.bound) {
-    dom.download.addEventListener("click", () => {
-      if (!selectedHookId) {
-        setCaptureMessage("Select a capture link first.", "error");
-        return;
-      }
-      const href = `/api/hooks/${encodeURIComponent(selectedHookId)}/download`;
-      window.open(href, "_blank", "noopener");
-    });
-    dom.download.dataset.bound = "1";
+  if (dom.downloadGroup && !dom.downloadGroup.dataset.bound) {
+    dom.downloadGroup.addEventListener("click", handleDownloadClick);
+    dom.downloadGroup.dataset.bound = "1";
   }
 
   if (dom.clear && !dom.clear.dataset.bound) {
@@ -131,14 +123,24 @@ function bindEvents() {
     dom.homeSelect.addEventListener("change", renderCaptureHome);
     dom.homeSelect.dataset.bound = "1";
   }
+}
 
-  if (dom.manageButton && !dom.manageButton.dataset.bound) {
-    dom.manageButton.addEventListener("click", () => {
-      router.navigate("capture");
-      ensureCapturePage(true);
-    });
-    dom.manageButton.dataset.bound = "1";
+function handleDownloadClick(event) {
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  if (!target) return;
+  const button = target.closest("[data-capture-download]");
+  if (!button) return;
+  if (!selectedHookId) {
+    setCaptureMessage("Select a capture link first.", "error");
+    return;
   }
+  const format = (
+    button.getAttribute("data-capture-download") || "jsonl"
+  ).toLowerCase();
+  const href = `/api/hooks/${encodeURIComponent(
+    selectedHookId
+  )}/download?format=${encodeURIComponent(format)}`;
+  window.open(href, "_blank", "noopener");
 }
 
 function subscribeRealtime() {

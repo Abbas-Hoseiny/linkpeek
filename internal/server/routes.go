@@ -38,6 +38,7 @@ func registerRoutes(rt *ap_runtime.Runtime, mux *http.ServeMux) {
 	mux.HandleFunc("/api/db/ping", handleDBPing)
 	mux.HandleFunc("/api/echo", handleEcho)
 	mux.HandleFunc("/api/events", handleEvents)
+	mux.HandleFunc("/api/events/export", handleEventsExport)
 	mux.HandleFunc("/api/events/stream", handleEventsStream)
 	mux.HandleFunc("/api/realtime", handleRealtime)
 	mux.Handle("/api/tunnel", middleware.WithAllowedMethods(http.MethodGet)(http.HandlerFunc(tunnelHandlers.Tunnel)))
@@ -66,6 +67,7 @@ func registerRoutes(rt *ap_runtime.Runtime, mux *http.ServeMux) {
 	mux.Handle("/api/scanner/jobs", middleware.WithAllowedMethods("GET", "POST")(http.HandlerFunc(scannerHandlers.Jobs)))
 	mux.Handle("/api/scanner/jobs/", middleware.WithAllowedMethods("DELETE")(http.HandlerFunc(scannerHandlers.JobItem)))
 	mux.HandleFunc("/api/scanner/results", scannerHandlers.Results)
+	mux.Handle("/api/scanner/results/export", middleware.WithAllowedMethods(http.MethodGet)(http.HandlerFunc(scannerHandlers.ExportResults)))
 
 	mux.Handle("/api/retrylab/scenarios", middleware.WithAllowedMethods(http.MethodGet)(http.HandlerFunc(retryHandlers.Scenarios)))
 	mux.Handle("/api/retrylab/stats", middleware.WithAllowedMethods(http.MethodGet)(http.HandlerFunc(retryHandlers.Stats)))

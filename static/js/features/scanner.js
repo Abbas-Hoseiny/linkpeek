@@ -36,7 +36,7 @@ export function init(context = {}) {
     autoRefresh: document.getElementById("scannerAutoRefresh"),
     downloadJobs: document.getElementById("btnDownloadJobs"),
     clearJobs: document.getElementById("btnClearJobs"),
-    downloadLogs: document.getElementById("btnDownloadLogs"),
+    downloadGroup: document.getElementById("scannerDownloadGroup"),
     clearLogs: document.getElementById("btnClearLogs"),
   };
 
@@ -79,9 +79,9 @@ function bindEvents() {
     dom.clearJobs.dataset.bound = "1";
   }
 
-  if (dom.downloadLogs && !dom.downloadLogs.dataset.bound) {
-    dom.downloadLogs.addEventListener("click", handleDownloadLogs);
-    dom.downloadLogs.dataset.bound = "1";
+  if (dom.downloadGroup && !dom.downloadGroup.dataset.bound) {
+    dom.downloadGroup.addEventListener("click", handleDownloadGroupClick);
+    dom.downloadGroup.dataset.bound = "1";
   }
 
   if (dom.clearLogs && !dom.clearLogs.dataset.bound) {
@@ -332,19 +332,31 @@ async function handleClearJobs() {
   }
 }
 
-function handleDownloadLogs() {
+function handleDownloadGroupClick(event) {
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  if (!target) return;
+  const button = target.closest("[data-scanner-download]");
+  if (!button) return;
+
   if (!resultsCache.length) {
-    window.alert("No logs to download.");
+    setScannerMessage("No scanner logs available yet.", "error");
     return;
   }
-  const json = JSON.stringify(resultsCache, null, 2);
-  const blob = new Blob([json], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `scanner-logs-${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+
+  const format = (
+    button.getAttribute("data-scanner-download") || "json"
+  ).toLowerCase();
+  const params = new URLSearchParams();
+  params.set("format", format);
+  params.set("limit", String(RESULTS_LIMIT));
+  if (dom.filter && dom.filter.value) {
+    params.set("job", dom.filter.value);
+  }
+  window.open(
+    `/api/scanner/results/export?${params.toString()}`,
+    "_blank",
+    "noopener"
+  );
 }
 
 async function handleClearLogs() {

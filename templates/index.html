@@ -38,6 +38,7 @@
         <a class="btn" id="navCapture" href="#capture">Capture</a>
         <a class="btn" id="navScanner" href="#scanner">Scanner</a>
         <a class="btn" id="navAccess" href="/access">Access</a>
+        <a class="btn" id="navDocs" href="https://linkpreview.tech" target="_blank" rel="noopener">Docs</a>
         <button class="btn" id="themeToggle" title="Toggle theme">Light</button>
         <a class="btn warn" id="navLogout" href="/logout" title="Sign out of this session">Logout</a>
       </nav>
@@ -83,27 +84,19 @@
             </div>
             <div id="classBar" class="classbar" aria-live="polite"></div>
           </div>
+          <div class="doc-link-bar">
+            <a
+              class="btn ghost sm doc-link"
+              href="https://linkpreview.tech/getting-started/quickstart/"
+              target="_blank"
+              rel="noopener"
+            >
+              Docs
+            </a>
+          </div>
           <div id="grid" class="grid"></div>
         </section>
 
-        <section class="panel capture-home-panel" id="captureHomePanel">
-          <div class="capture-home-head">
-            <div>
-              <div class="caption">Capture Logs</div>
-              <p class="capture-home-hint">
-                Monitor webhook-style requests captured via shareable URLs. Use the Capture tab for full management.
-              </p>
-            </div>
-            <div class="capture-home-actions">
-              <select id="captureHomeSelect" class="input" aria-label="Filter capture links">
-                <option value="">All links</option>
-              </select>
-              <button class="btn ghost sm" id="btnRefreshCaptureHome">Refresh</button>
-              <button class="btn sm" id="btnOpenCapturePage">Manage</button>
-            </div>
-          </div>
-          <div id="captureHomeList" class="capture-log-list"></div>
-        </section>
       </main>
     </div>
 
@@ -112,10 +105,19 @@
         <div class="main-head">
           <div class="caption">Active Scanner</div>
           <p class="scanner-hint">
-            Schedule outbound probes that periodically send HTTP requests to a target and record
-            each response. Use this to monitor crawler behavior, regression impacts, or persistence
-            of downstream fixes.
+            Schedule interval-based HTTP probes, capture status and response snippets for every run,
+            and export NDJSON, JSON, or PDF summaries when you spot regressions.
           </p>
+        </div>
+        <div class="doc-link-bar">
+          <a
+            class="btn ghost sm doc-link"
+            href="https://linkpreview.tech/labs/scanner/"
+            target="_blank"
+            rel="noopener"
+          >
+            Docs
+          </a>
         </div>
         <section class="scanner-panel">
           <form id="scannerForm" class="scanner-form" autocomplete="off">
@@ -231,9 +233,17 @@
                 <option value="">All jobs</option>
               </select>
               <input id="scannerSearch" class="input" type="text" placeholder="Search logs..." />
-              <button class="btn ghost sm" id="btnDownloadLogs" title="Download logs">
-                📥 Export
-              </button>
+              <div class="download-group" id="scannerDownloadGroup" role="group" aria-label="Download scanner logs">
+                <button class="btn ghost sm" type="button" data-scanner-download="jsonl" title="Download NDJSON">
+                  📥 NDJSON
+                </button>
+                <button class="btn ghost sm" type="button" data-scanner-download="json" title="Download pretty JSON">
+                  📥 JSON
+                </button>
+                <button class="btn ghost sm" type="button" data-scanner-download="pdf" title="Open PDF summary">
+                  📄 PDF
+                </button>
+              </div>
               <button class="btn ghost sm warn" id="btnClearLogs" title="Clear all logs">
                 🗑️ Clear
               </button>
@@ -249,8 +259,18 @@
         <div class="main-head">
           <div class="caption">Capture Links</div>
           <p class="capture-hint">
-            Generate webhook-style endpoints, forward them to external systems, and inspect every request captured by LinkPeek.
+            Generate webhook-style endpoints, inspect headers and body previews in realtime, and export transcripts when you need to share evidence.
           </p>
+        </div>
+        <div class="doc-link-bar">
+          <a
+            class="btn ghost sm doc-link"
+            href="https://linkpreview.tech/labs/capture/"
+            target="_blank"
+            rel="noopener"
+          >
+            Docs
+          </a>
         </div>
         <section class="capture-shell">
           <div class="panel capture-panel">
@@ -276,7 +296,11 @@
                   <option value="">Select link</option>
                 </select>
                 <button class="btn ghost sm" id="btnCaptureRefresh">Refresh</button>
-                <button class="btn ghost sm" id="btnCaptureDownload">Download</button>
+                <div class="capture-download-group download-group" id="captureDownloadGroup" role="group" aria-label="Download capture log">
+                  <button class="btn ghost sm" type="button" data-capture-download="jsonl">NDJSON</button>
+                  <button class="btn ghost sm" type="button" data-capture-download="json">Pretty JSON</button>
+                  <button class="btn ghost sm" type="button" data-capture-download="pdf">PDF</button>
+                </div>
                 <button class="btn ghost sm warn" id="btnCaptureClear">Clear</button>
               </div>
             </div>
@@ -292,6 +316,16 @@
         <div class="main-head">
           <div class="caption">Tunnel</div>
         </div>
+        <div class="doc-link-bar">
+          <a
+            class="btn ghost sm doc-link"
+            href="https://linkpreview.tech/labs/tunnel/"
+            target="_blank"
+            rel="noopener"
+          >
+            Docs
+          </a>
+        </div>
         <div id="tunnelGrid" class="grid"></div>
       </main>
     </div>
@@ -302,9 +336,8 @@
         <div class="main-head payload-head">
           <div class="caption">Payload Lab</div>
           <p class="payload-hint">
-            Generate deterministic spectrum variants in 10-link windows. Use the
-            spectrum controls on each card to step seeds, copy links, or share
-            entire batches.
+            Upload artefacts once, copy shareable variant URLs (raw, inline, resilience cases),
+            and use the spectrum controls to iterate deterministic preview seeds.
           </p>
           <form id="payloadForm" class="payload-form" autocomplete="off">
             <label class="sr-only" for="payloadFile">Payload file</label>
@@ -334,6 +367,21 @@
             />
             <button class="btn" type="submit">Upload</button>
           </form>
+          <div class="download-group payload-download-group" id="payloadDownloadGroup" role="group" aria-label="Download payload activity">
+            <button class="btn ghost sm" type="button" data-payload-download="jsonl">NDJSON</button>
+            <button class="btn ghost sm" type="button" data-payload-download="json">Pretty JSON</button>
+            <button class="btn ghost sm" type="button" data-payload-download="pdf">PDF</button>
+          </div>
+        </div>
+        <div class="doc-link-bar">
+          <a
+            class="btn ghost sm doc-link"
+            href="https://linkpreview.tech/labs/payload/"
+            target="_blank"
+            rel="noopener"
+          >
+            Docs
+          </a>
         </div>
         <div
           id="payloadMessage"
@@ -347,6 +395,7 @@
           role="status"
           aria-live="polite"
         ></div>
+        <div id="payloadTiles" class="payload-tiles"></div>
         <div id="payloadList" class="payload-list" aria-live="polite"></div>
 
         <section class="snippet-lab" aria-labelledby="snippetLabTitle">
@@ -419,9 +468,19 @@
                 <h2>Explore Retry Scenarios</h2>
               </div>
               <p class="retry-hint">
-                Trigger network anomalies to study how clients respond. Open a scenario in a new tab
-                or copy its direct link for external testing.
+                Trigger deterministic failure modes to validate retry logic, watch live metrics update,
+                and copy scenario links for external test clients.
               </p>
+            </div>
+            <div class="doc-link-bar">
+              <a
+                class="btn ghost sm doc-link"
+                href="https://linkpreview.tech/labs/retry/"
+                target="_blank"
+                rel="noopener"
+              >
+                Docs
+              </a>
             </div>
             <div id="retryScenarioList" class="retry-scenario-list" aria-live="polite"></div>
           </section>
@@ -441,6 +500,11 @@
                   <select id="retryLogFilter" class="input" aria-label="Filter retry log by scenario">
                     <option value="">All scenarios</option>
                   </select>
+                  <div class="download-group" id="retryDownloadGroup" role="group" aria-label="Download retry log">
+                    <button class="btn ghost sm" type="button" data-retry-download="jsonl">NDJSON</button>
+                    <button class="btn ghost sm" type="button" data-retry-download="json">Pretty JSON</button>
+                    <button class="btn ghost sm" type="button" data-retry-download="pdf">PDF</button>
+                  </div>
                   <button class="btn ghost sm" id="retryLogRefresh" type="button">Refresh</button>
                   <button class="btn ghost sm warn" id="retryLogClear" type="button">Clear</button>
                 </div>
@@ -483,6 +547,14 @@
         </form>
         <footer class="auth-meta">
           <span id="authTimestamp">Protected access</span>
+          <a
+            class="auth-doc-link"
+            href="https://linkpreview.tech/admin/access/"
+            target="_blank"
+            rel="noopener"
+          >
+            Docs
+          </a>
         </footer>
       </section>
     </div>

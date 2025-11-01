@@ -222,10 +222,24 @@ body.auth-lock {
 }
 
 .auth-meta {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   font-size: 0.78rem;
   letter-spacing: 0.08em;
   color: var(--auth-text-muted);
+}
+
+.auth-doc-link {
+  color: inherit;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.auth-doc-link:hover {
+  color: var(--auth-text);
 }
 
 .auth-overlay[data-state="ready"] .auth-panel {

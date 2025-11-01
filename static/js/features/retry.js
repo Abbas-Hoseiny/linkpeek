@@ -49,6 +49,7 @@ export function init(context = {}) {
     logFilter: document.getElementById("retryLogFilter"),
     logRefresh: document.getElementById("retryLogRefresh"),
     logClear: document.getElementById("retryLogClear"),
+    logDownloadGroup: document.getElementById("retryDownloadGroup"),
   };
 
   bindEvents();
@@ -81,6 +82,11 @@ function bindEvents() {
   if (dom.logClear && !dom.logClear.dataset.bound) {
     dom.logClear.addEventListener("click", handleLogClearClick);
     dom.logClear.dataset.bound = "1";
+  }
+
+  if (dom.logDownloadGroup && !dom.logDownloadGroup.dataset.bound) {
+    dom.logDownloadGroup.addEventListener("click", handleLogDownloadClick);
+    dom.logDownloadGroup.dataset.bound = "1";
   }
 }
 
@@ -336,8 +342,7 @@ function renderRetryStats() {
 function renderRetryLog(options = {}) {
   if (!dom.logList) return;
   if (!logEntries.length) {
-    dom.logList.innerHTML =
-      '<p class="retry-log-empty">No retry hits yet.</p>';
+    dom.logList.innerHTML = '<p class="retry-log-empty">No retry hits yet.</p>';
     return;
   }
 
@@ -455,10 +460,9 @@ function normalizeLogEvent(raw) {
     headers[headerKey] ||
     headers[RETRY_SCENARIO_HEADER.toUpperCase()] ||
     "";
-  const scenario =
-    String(scenarioRaw || deriveScenarioFromPath(raw.path))
-      .trim()
-      .toLowerCase();
+  const scenario = String(scenarioRaw || deriveScenarioFromPath(raw.path))
+    .trim()
+    .toLowerCase();
   if (!scenario) return null;
 
   const tsValue = raw.ts ? new Date(raw.ts).getTime() : Date.now();
@@ -510,6 +514,30 @@ function removeLogEntriesForScenario(scenarioId) {
     logEntries = logEntries.filter((entry) => entry.scenario !== scenarioId);
   }
   renderRetryLog();
+}
+
+function handleLogDownloadClick(event) {
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  if (!target) return;
+  const button = target.closest("[data-retry-download]");
+  if (!button) return;
+
+  if (!logEntries.length) {
+    setLogMessage("No retry logs available yet.", "error", 2400);
+    return;
+  }
+
+  const format = (
+    button.getAttribute("data-retry-download") || "json"
+  ).toLowerCase();
+  const params = new URLSearchParams();
+  params.set("class", "retrylab");
+  params.set("format", format);
+  params.set("limit", String(LOG_LIMIT));
+  if (logFilterValue) {
+    params.set("scenario", logFilterValue);
+  }
+  window.open(`/api/events/export?${params.toString()}`, "_blank", "noopener");
 }
 
 function handleLogRefreshClick(event) {

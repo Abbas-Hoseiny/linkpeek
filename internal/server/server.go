@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/rand"
@@ -220,10 +221,11 @@ var (
 )
 
 const (
-	retryLabHeader      = "X-RetryLab-Scenario"
-	captureHookHeader   = "X-Capture-Hook"
-	payloadMetaFilename = "meta.json"
-	payloadDataFilename = "original.bin"
+	retryLabHeader        = "X-RetryLab-Scenario"
+	captureHookHeader     = "X-Capture-Hook"
+	payloadMetaFilename   = "meta.json"
+	payloadDataFilename   = "original.bin"
+	quickTunnelHostSuffix = ".trycloudflare.com"
 )
 
 func newPayloadID() string {
@@ -463,10 +465,119 @@ func isPrivateIP(ipStr string) bool {
 	return false
 }
 
+func classifyEventByPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	clean := strings.ToLower(strings.TrimSpace(path))
+	switch {
+	case strings.HasPrefix(clean, "/api/hooks"), strings.HasPrefix(clean, "/capture/"):
+		return "capture"
+	case strings.HasPrefix(clean, "/api/retrylab"), strings.HasPrefix(clean, "/retrylab/"):
+		return "retrylab"
+	case strings.HasPrefix(clean, "/api/scanner"):
+		return "scanner"
+	case strings.HasPrefix(clean, "/api/payload"), strings.HasPrefix(clean, "/payload/"):
+		return "payload"
+	case strings.HasPrefix(clean, "/api/snippets"), strings.HasPrefix(clean, "/snippet/"):
+		return "snippet"
+	case strings.HasPrefix(clean, "/api/tunnel"), strings.HasPrefix(clean, "/tunnel"):
+		return "tunnel"
+	default:
+		return ""
+	}
+}
+
+func detectTunnelHost(r *http.Request, headers map[string]string) (string, bool) {
+	candidates := make([]string, 0, 6)
+	seen := map[string]struct{}{}
+	addCandidate := func(value string) {
+		if value == "" {
+			return
+		}
+		first := strings.TrimSpace(strings.Split(value, ",")[0])
+		if first == "" {
+			return
+		}
+		if _, ok := seen[first]; ok {
+			return
+		}
+		seen[first] = struct{}{}
+		candidates = append(candidates, first)
+	}
+
+	if headers != nil {
+		addCandidate(headers["tunnel-host"])
+		addCandidate(headers["host"])
+		addCandidate(headers["x-forwarded-host"])
+		addCandidate(headers["origin"])
+		addCandidate(headers["referer"])
+	}
+	if r != nil {
+		addCandidate(r.Host)
+		addCandidate(r.Header.Get("X-Forwarded-Host"))
+		addCandidate(r.Header.Get("Origin"))
+		addCandidate(r.Referer())
+	}
+
+	for _, candidate := range candidates {
+		host := normalizeTunnelHostCandidate(candidate)
+		if host == "" {
+			continue
+		}
+		if isQuickTunnelHost(host) {
+			return host, true
+		}
+	}
+	return "", false
+}
+
+func normalizeTunnelHostCandidate(value string) string {
+	if value == "" {
+		return ""
+	}
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return ""
+	}
+	if strings.Contains(v, "://") {
+		if u, err := neturl.Parse(v); err == nil && u.Host != "" {
+			v = u.Host
+		}
+	}
+	if idx := strings.IndexAny(v, "/?"); idx != -1 {
+		v = v[:idx]
+	}
+	if idx := strings.Index(v, ":"); idx != -1 {
+		v = v[:idx]
+	}
+	return strings.ToLower(strings.TrimSpace(v))
+}
+
+func isQuickTunnelHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	return strings.HasSuffix(strings.ToLower(host), quickTunnelHostSuffix)
+}
+
+func isRelevantTunnelPath(path string) bool {
+	normalized := strings.TrimSpace(strings.ToLower(path))
+	if normalized == "" || normalized == "/" {
+		return true
+	}
+	if strings.HasSuffix(normalized, "/") {
+		normalized = strings.TrimSuffix(normalized, "/")
+	}
+	return normalized == "/alpha"
+}
+
 // middleware to capture events
 func withLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		headers := utils.HeaderMap(r)
+		tunnelHost, tunnelDetected := detectTunnelHost(r, headers)
 		lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: 200}
 		reqID := utils.ReqID(start)
 		w.Header().Set("X-Request-Id", reqID)
@@ -484,7 +595,7 @@ func withLogging(next http.Handler) http.Handler {
 			Status:     lrw.statusCode,
 			DurationMs: dur,
 			RequestID:  reqID,
-			Headers:    utils.HeaderMap(r),
+			Headers:    headers,
 			Sess:       tokenFromRequest(r),
 			SFU:        r.Header.Get("Sec-Fetch-User"),
 			SFM:        r.Header.Get("Sec-Fetch-Mode"),
@@ -492,6 +603,12 @@ func withLogging(next http.Handler) http.Handler {
 			SFS:        r.Header.Get("Sec-Fetch-Site"),
 			Referer:    r.Referer(),
 			Origin:     r.Header.Get("Origin"),
+		}
+		if tunnelHost != "" {
+			if e.Headers == nil {
+				e.Headers = map[string]string{}
+			}
+			e.Headers["tunnel-host"] = tunnelHost
 		}
 		if scenario := strings.TrimSpace(r.Header.Get(retryLabHeader)); scenario != "" {
 			e.Class = "retrylab"
@@ -506,6 +623,13 @@ func withLogging(next http.Handler) http.Handler {
 				e.Headers = map[string]string{}
 			}
 			e.Headers[strings.ToLower(captureHookHeader)] = hookID
+		}
+		if e.Class == "" {
+			if tunnelDetected && isRelevantTunnelPath(r.URL.Path) {
+				e.Class = "tunnel"
+			} else if cls := classifyEventByPath(r.URL.Path); cls != "" {
+				e.Class = cls
+			}
 		}
 		// Filter only if it's clearly internal: drop when IP is private AND no proxy headers indicate a real client.
 		if !(isPrivateIP(e.RemoteIP) && r.Header.Get("X-Forwarded-For") == "" && r.Header.Get("CF-Connecting-IP") == "" && r.Header.Get("Forwarded") == "") {
@@ -927,6 +1051,341 @@ func handleEvents(w http.ResponseWriter, r *http.Request) {
 	items := recent.Last(n)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(items)
+}
+
+func handleEventsExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	switch format {
+	case "", "json", "pretty", "pretty-json", "prettyjson":
+		format = "json"
+	case "jsonl", "ndjson":
+		format = "jsonl"
+	case "pdf":
+		// ok
+	default:
+		http.Error(w, "unsupported format (use json, jsonl, or pdf)", http.StatusBadRequest)
+		return
+	}
+	filter := eventExportFilter{
+		class:    normalizeEventClass(r.URL.Query().Get("class")),
+		scenario: strings.TrimSpace(r.URL.Query().Get("scenario")),
+		hook:     strings.TrimSpace(r.URL.Query().Get("hook")),
+	}
+	limit := clamp(parseIntDefault(r.URL.Query().Get("limit"), 200), 1, 5000)
+	events, err := loadEventsForExport(filter, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		return events[i].Ts.Before(events[j].Ts)
+	})
+	w.Header().Set("Cache-Control", "no-store")
+	now := utils.NowUTC()
+	base := filter.filenameBase()
+	var filename string
+	switch format {
+	case "jsonl":
+		filename = makeEventExportFilename(base, "jsonl", now)
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+		if err := writeEventsNDJSON(w, events); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	case "pdf":
+		filename = makeEventExportFilename(base, "pdf", now)
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", filename))
+		if err := writeEventsPDF(w, filter, events, now); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	default:
+		filename = makeEventExportFilename(base, "json", now)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+		if err := writeEventsPrettyJSON(w, filter, events, now); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+type eventExportFilter struct {
+	class    string
+	scenario string
+	hook     string
+}
+
+func (f eventExportFilter) matches(evt types.Event) bool {
+	if f.class != "" && !strings.EqualFold(evt.Class, f.class) {
+		return false
+	}
+	if f.scenario != "" {
+		header := lookupHeader(evt.Headers, strings.ToLower(retryLabHeader))
+		if header == "" {
+			header = lookupHeader(evt.Headers, retryLabHeader)
+		}
+		if header == "" || !strings.EqualFold(header, f.scenario) {
+			return false
+		}
+	}
+	if f.hook != "" {
+		header := lookupHeader(evt.Headers, strings.ToLower(captureHookHeader))
+		if header == "" {
+			header = lookupHeader(evt.Headers, captureHookHeader)
+		}
+		if header == "" || !strings.EqualFold(header, f.hook) {
+			return false
+		}
+	}
+	return true
+}
+
+func (f eventExportFilter) filenameBase() string {
+	parts := []string{}
+	if f.class != "" {
+		parts = append(parts, f.class)
+	} else {
+		parts = append(parts, "events")
+	}
+	if f.scenario != "" {
+		parts = append(parts, f.scenario)
+	}
+	if f.hook != "" {
+		parts = append(parts, f.hook)
+	}
+	return strings.Join(parts, "-")
+}
+
+func normalizeEventClass(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "all":
+		return ""
+	case "capture", "hook", "hooks":
+		return "capture"
+	case "retry", "retrylab":
+		return "retrylab"
+	case "scanner":
+		return "scanner"
+	case "payload", "payloads":
+		return "payload"
+	case "tunnel":
+		return "tunnel"
+	case "snippet", "snippets":
+		return "snippet"
+	default:
+		return strings.ToLower(strings.TrimSpace(raw))
+	}
+}
+
+func loadEventsForExport(filter eventExportFilter, limit int) ([]types.Event, error) {
+	path := filepath.Join(dataDir, "events.jsonl")
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []types.Event{}, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 128*1024), 8*1024*1024)
+	events := make([]types.Event, 0, limit)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var evt types.Event
+		if err := json.Unmarshal(line, &evt); err != nil {
+			continue
+		}
+		if !filter.matches(evt) {
+			continue
+		}
+		events = append(events, evt)
+		if limit > 0 && len(events) > limit {
+			events = events[1:]
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+func writeEventsNDJSON(w io.Writer, events []types.Event) error {
+	enc := json.NewEncoder(w)
+	for _, evt := range events {
+		if err := enc.Encode(evt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeEventsPrettyJSON(w io.Writer, filter eventExportFilter, events []types.Event, generatedAt time.Time) error {
+	classLabel := filter.class
+	if classLabel == "" {
+		classLabel = "all"
+	}
+	payload := struct {
+		Class       string        `json:"class"`
+		Scenario    string        `json:"scenario,omitempty"`
+		Hook        string        `json:"hook,omitempty"`
+		GeneratedAt time.Time     `json:"generated_at"`
+		Count       int           `json:"count"`
+		Items       []types.Event `json:"items"`
+	}{
+		Class:       classLabel,
+		Scenario:    filter.scenario,
+		Hook:        filter.hook,
+		GeneratedAt: generatedAt,
+		Count:       len(events),
+		Items:       events,
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(payload)
+}
+
+func writeEventsPDF(w io.Writer, filter eventExportFilter, events []types.Event, generatedAt time.Time) error {
+	pdf := fpdf.New("P", "mm", "A4", "")
+	pdf.SetMargins(12, 16, 12)
+	tr := pdf.UnicodeTranslatorFromDescriptor("")
+	pdf.SetHeaderFuncMode(func() {
+		pdf.SetFont("Helvetica", "B", 12)
+		pdf.CellFormat(0, 8, tr("LinkPeek"), "", 1, "C", false, 0, "")
+		pdf.SetY(20)
+	}, true)
+	pdf.SetFooterFunc(func() {
+		pdf.SetY(-12)
+		pdf.SetFont("Helvetica", "", 9)
+		pdf.CellFormat(0, 6, tr(fmt.Sprintf("Page %d", pdf.PageNo())), "T", 0, "R", false, 0, "")
+	})
+	pdf.AddPage()
+	pdf.SetFont("Helvetica", "B", 14)
+	pdf.CellFormat(0, 8, tr("Event Log Export"), "", 1, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "", 11)
+	classLabel := filter.class
+	if classLabel == "" {
+		classLabel = "all"
+	}
+	pdf.CellFormat(0, 6, tr(fmt.Sprintf("Class: %s", classLabel)), "", 1, "L", false, 0, "")
+	if filter.scenario != "" {
+		pdf.CellFormat(0, 6, tr(fmt.Sprintf("Scenario: %s", filter.scenario)), "", 1, "L", false, 0, "")
+	}
+	if filter.hook != "" {
+		pdf.CellFormat(0, 6, tr(fmt.Sprintf("Hook: %s", filter.hook)), "", 1, "L", false, 0, "")
+	}
+	pdf.CellFormat(0, 6, tr(fmt.Sprintf("Generated: %s", generatedAt.Format(time.RFC3339))), "", 1, "L", false, 0, "")
+	pdf.CellFormat(0, 6, tr(fmt.Sprintf("Events: %d", len(events))), "", 1, "L", false, 0, "")
+	pdf.Ln(2)
+	if len(events) == 0 {
+		pdf.SetFont("Helvetica", "", 10)
+		pdf.MultiCell(0, 5, tr("No events matched the selected filters."), "", "L", false)
+		return pdf.Output(w)
+	}
+	for _, evt := range events {
+		ts := evt.Ts
+		if ts.IsZero() {
+			ts = generatedAt
+		}
+		pdf.SetFont("Helvetica", "B", 11)
+		pdf.CellFormat(0, 6, tr(ts.Format("2006-01-02 15:04:05 UTC")), "", 1, "L", false, 0, "")
+		path := strings.TrimSpace(evt.Path)
+		if evt.Query != "" {
+			if path == "" {
+				path = "?" + evt.Query
+			} else {
+				path = path + "?" + evt.Query
+			}
+		}
+		verb := strings.ToUpper(strings.TrimSpace(evt.Method))
+		if verb == "" {
+			verb = "GET"
+		}
+		pdf.SetFont("Helvetica", "", 10)
+		pdf.MultiCell(0, 5, tr(fmt.Sprintf("%s %s", verb, path)), "", "L", false)
+		meta := []string{}
+		if evt.Status > 0 {
+			meta = append(meta, fmt.Sprintf("Status: %d", evt.Status))
+		}
+		if evt.DurationMs > 0 {
+			meta = append(meta, fmt.Sprintf("Duration: %d ms", evt.DurationMs))
+		}
+		if strings.TrimSpace(evt.RemoteIP) != "" {
+			meta = append(meta, fmt.Sprintf("Remote IP: %s", evt.RemoteIP))
+		}
+		if len(meta) > 0 {
+			pdf.SetFont("Helvetica", "", 9)
+			pdf.MultiCell(0, 5, tr(strings.Join(meta, "    ")), "", "L", false)
+		}
+		if len(evt.Headers) > 0 {
+			pdf.SetFont("Helvetica", "I", 9)
+			pdf.CellFormat(0, 5, tr("Headers"), "", 1, "L", false, 0, "")
+			keys := make([]string, 0, len(evt.Headers))
+			for k := range evt.Headers {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			pdf.SetFont("Courier", "", 8)
+			for _, k := range keys {
+				pdf.MultiCell(0, 4, tr(fmt.Sprintf("%s: %s", k, evt.Headers[k])), "", "L", false)
+			}
+		}
+		pdf.Ln(2)
+	}
+	return pdf.Output(w)
+}
+
+func makeEventExportFilename(base, ext string, generatedAt time.Time) string {
+	safeBase := sanitizeFilenameComponent(base)
+	if safeBase == "" {
+		safeBase = "events"
+	}
+	stamp := generatedAt.UTC().Format("20060102-150405")
+	return fmt.Sprintf("%s-%s.%s", safeBase, stamp, ext)
+}
+
+func sanitizeFilenameComponent(s string) string {
+	if s == "" {
+		return ""
+	}
+	var builder strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		case r == '-', r == '_':
+			builder.WriteRune(r)
+		default:
+			builder.WriteRune('-')
+		}
+	}
+	return strings.Trim(builder.String(), "-_")
+}
+
+func lookupHeader(headers map[string]string, key string) string {
+	if len(headers) == 0 {
+		return ""
+	}
+	if v, ok := headers[key]; ok {
+		return v
+	}
+	lower := strings.ToLower(key)
+	if v, ok := headers[lower]; ok {
+		return v
+	}
+	upper := strings.ToUpper(key)
+	if v, ok := headers[upper]; ok {
+		return v
+	}
+	return ""
 }
 
 func handleEventsStream(w http.ResponseWriter, r *http.Request) {
@@ -1520,30 +1979,31 @@ func handleIPExport(w http.ResponseWriter, r *http.Request) {
 func exportJSON(w http.ResponseWriter, r *http.Request, ip, cat string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	w.Header().Set("Content-Type", "application/json")
+	var buf bytes.Buffer
+	write := func(s string) {
+		buf.WriteString(s)
+	}
+	writeBytes := func(b []byte) {
+		buf.Write(b)
+	}
 	switch cat {
 	case "all":
-		// Build a single JSON object: { ip, generated_at, geo, ua, summary, requests }
-		w.Write([]byte("{"))
-		// ip
+		write("{")
 		b, _ := json.Marshal(ip)
-		w.Write([]byte("\"ip\":"))
-		w.Write(b)
-		// generated_at
-		w.Write([]byte(",\"generated_at\":"))
+		write("\"ip\":")
+		writeBytes(b)
+		write(",\"generated_at\":")
 		b, _ = json.Marshal(utils.NowUTC())
-		w.Write(b)
-		// geo
-		w.Write([]byte(",\"geo\":"))
+		writeBytes(b)
+		write(",\"geo\":")
 		var geoB []byte
 		var fetched time.Time
 		if err := dbConn.QueryRowContext(ctx, `SELECT json, fetched_at FROM ip_geo WHERE ip=$1`, ip).Scan(&geoB, &fetched); err == nil {
-			w.Write(geoB)
+			writeBytes(geoB)
 		} else {
-			w.Write([]byte("null"))
+			write("null")
 		}
-		// ua
-		w.Write([]byte(",\"ua\":"))
+		write(",\"ua\":")
 		{
 			rows, err := dbConn.QueryContext(ctx, `
                 SELECT COALESCE(u.ua,''), COUNT(*)
@@ -1560,7 +2020,7 @@ func exportJSON(w http.ResponseWriter, r *http.Request, ip, cat string) {
 				UA    string `json:"ua"`
 				Count int64  `json:"count"`
 			}
-			w.Write([]byte("["))
+			write("[")
 			first := true
 			for rows.Next() {
 				var u string
@@ -1571,23 +2031,21 @@ func exportJSON(w http.ResponseWriter, r *http.Request, ip, cat string) {
 				}
 				rb, _ := json.Marshal(rec{UA: u, Count: c})
 				if !first {
-					w.Write([]byte(","))
+					write(",")
 				}
 				first = false
-				w.Write(rb)
+				writeBytes(rb)
 			}
-			w.Write([]byte("]"))
+			write("]")
 		}
-		// summary (last 30d, hourly)
-		w.Write([]byte(",\"summary\":"))
+		write(",\"summary\":")
 		if sum, err := buildIPSummary(ctx, ip, "hour", 30*24*time.Hour); err == nil {
 			sb, _ := json.Marshal(sum)
-			w.Write(sb)
+			writeBytes(sb)
 		} else {
-			w.Write([]byte("null"))
+			write("null")
 		}
-		// requests (default limit, can be overridden via ?limit=)
-		w.Write([]byte(",\"requests\":"))
+		write(",\"requests\":")
 		{
 			limit := clamp(parseIntDefault(r.URL.Query().Get("limit"), 100000), 1, 2000000)
 			rows, err := dbConn.QueryContext(ctx, `
@@ -1612,7 +2070,7 @@ func exportJSON(w http.ResponseWriter, r *http.Request, ip, cat string) {
 				UA         string    `json:"ua"`
 				Class      string    `json:"class,omitempty"`
 			}
-			w.Write([]byte("["))
+			write("[")
 			first := true
 			for rows.Next() {
 				var ts time.Time
@@ -1628,15 +2086,14 @@ func exportJSON(w http.ResponseWriter, r *http.Request, ip, cat string) {
 				x := row{Ts: ts, Method: method, Path: path, Query: query, Status: status, DurationMs: dur, RequestID: reqID, UA: ua, Class: cls}
 				rb, _ := json.Marshal(x)
 				if !first {
-					w.Write([]byte(","))
+					write(",")
 				}
 				first = false
-				w.Write(rb)
+				writeBytes(rb)
 			}
-			w.Write([]byte("]"))
+			write("]")
 		}
-		w.Write([]byte("}"))
-		return
+		write("}")
 	case "geo":
 		var b []byte
 		var fetched time.Time
@@ -1645,9 +2102,8 @@ func exportJSON(w http.ResponseWriter, r *http.Request, ip, cat string) {
 			http.Error(w, "geo not found", http.StatusNotFound)
 			return
 		}
-		w.Write(b)
+		writeBytes(b)
 	case "ua":
-		// derive UA list (all-time for IP)
 		rows, err := dbConn.QueryContext(ctx, `
             SELECT COALESCE(u.ua,''), COUNT(*)
             FROM request r LEFT JOIN user_agent u ON u.id=r.ua_id
@@ -1663,7 +2119,7 @@ func exportJSON(w http.ResponseWriter, r *http.Request, ip, cat string) {
 			UA    string `json:"ua"`
 			Count int64  `json:"count"`
 		}
-		w.Write([]byte("["))
+		write("[")
 		first := true
 		for rows.Next() {
 			var u string
@@ -1674,21 +2130,21 @@ func exportJSON(w http.ResponseWriter, r *http.Request, ip, cat string) {
 			}
 			b, _ := json.Marshal(rec{UA: u, Count: c})
 			if !first {
-				w.Write([]byte(","))
+				write(",")
 			}
 			first = false
-			w.Write(b)
+			writeBytes(b)
 		}
-		w.Write([]byte("]"))
+		write("]")
 	case "summary":
 		sum, err := buildIPSummary(ctx, ip, "hour", 30*24*time.Hour)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		json.NewEncoder(w).Encode(sum)
+		enc := json.NewEncoder(&buf)
+		enc.Encode(sum)
 	case "requests":
-		// stream rows; optional limit
 		limit := clamp(parseIntDefault(r.URL.Query().Get("limit"), 100000), 1, 2000000)
 		rows, err := dbConn.QueryContext(ctx, `
             SELECT r.ts, r.method, r.path, r.query, r.status, r.duration_ms, r.request_id, COALESCE(u.ua,''), COALESCE(r.sfu,''), COALESCE(r.sfm,''), COALESCE(r.sfd,''), COALESCE(r.sfs,'')
@@ -1712,7 +2168,7 @@ func exportJSON(w http.ResponseWriter, r *http.Request, ip, cat string) {
 			UA         string    `json:"ua"`
 			Class      string    `json:"class,omitempty"`
 		}
-		w.Write([]byte("["))
+		write("[")
 		first := true
 		for rows.Next() {
 			var ts time.Time
@@ -1728,15 +2184,23 @@ func exportJSON(w http.ResponseWriter, r *http.Request, ip, cat string) {
 			x := row{Ts: ts, Method: method, Path: path, Query: query, Status: status, DurationMs: dur, RequestID: reqID, UA: ua, Class: cls}
 			b, _ := json.Marshal(x)
 			if !first {
-				w.Write([]byte(","))
+				write(",")
 			}
 			first = false
-			w.Write(b)
+			writeBytes(b)
 		}
-		w.Write([]byte("]"))
+		write("]")
 	default:
 		http.Error(w, "unknown category", http.StatusBadRequest)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, buf.Bytes(), "", "  "); err != nil {
+		w.Write(buf.Bytes())
+		return
+	}
+	w.Write(pretty.Bytes())
 }
 
 func exportPDF(w http.ResponseWriter, r *http.Request, ip, cat string) {

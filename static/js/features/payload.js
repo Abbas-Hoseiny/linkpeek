@@ -6,12 +6,16 @@ import {
   formatTimestamp,
   formatBytes,
   copyTextToClipboard,
+  escapeHTML,
+  extractItems,
 } from "../lib/utils.js";
 import { realtimeClient } from "../lib/realtime.js";
 
 const SPECTRUM_WINDOW = 10;
 const SUCCESS_MESSAGE_TTL = 2500;
 const SNIPPET_SUCCESS_TTL = 1500;
+const PAYLOAD_EXPORT_LIMIT = 500;
+const PAYLOAD_LOG_LIMIT = 150;
 
 let dom = {};
 let appState = { currentTunnelURL: "" };
@@ -27,6 +31,10 @@ let tunnelInitialized = false;
 let tunnelActive = null;
 let lastAnnouncedTunnelURL = "";
 let realtimeSubscribed = false;
+let payloadLogEntries = [];
+let payloadLogsLoaded = false;
+let payloadLogsLoading = false;
+let payloadLogMessageTimer = null;
 
 export function init(ctx = {}) {
   appState = ctx.state || appState;
@@ -49,9 +57,12 @@ export function init(ctx = {}) {
     snippetFilename: $("#snippetFilename"),
     snippetResult: $("#snippetResult"),
     snippetMessage: $("#snippetMessage"),
+    downloadGroup: $("#payloadDownloadGroup"),
+    tiles: $("#payloadTiles"),
   };
 
   bindEventListeners();
+  ensurePayloadTiles();
   subscribeRealtime();
 }
 
@@ -83,6 +94,305 @@ function bindEventListeners() {
     dom.snippetResult.addEventListener("click", handleSnippetClick);
     dom.snippetResult.dataset.bound = "1";
   }
+
+  if (dom.downloadGroup && !dom.downloadGroup.dataset.bound) {
+    dom.downloadGroup.addEventListener("click", handlePayloadDownloadClick);
+    dom.downloadGroup.dataset.bound = "1";
+  }
+}
+
+function ensurePayloadTiles() {
+  if (!dom.page) return;
+  if (!dom.tiles) {
+    dom.tiles = $("#payloadTiles");
+  }
+  if (!dom.tiles) return;
+
+  if (!dom.logTile) {
+    const tile = document.createElement("section");
+    tile.className = "tile payload-log-tile";
+    tile.dataset.tileId = "payload-logs";
+    tile.innerHTML = `
+      <div class="tile-head">
+        <strong>Payload Logs</strong>
+        <div class="tile-actions"></div>
+      </div>
+      <div class="box"></div>
+    `;
+
+    const head = tile.querySelector(".tile-head");
+    const actions = head ? head.querySelector(".tile-actions") : null;
+    if (actions) {
+      if (dom.downloadGroup) {
+        dom.downloadGroup.classList.add("payload-log-download-group");
+        actions.appendChild(dom.downloadGroup);
+      }
+      dom.logRefreshButton = document.createElement("button");
+      dom.logRefreshButton.type = "button";
+      dom.logRefreshButton.className = "btn ghost sm";
+      dom.logRefreshButton.textContent = "Refresh";
+      dom.logRefreshButton.title = "Refresh payload logs";
+      dom.logRefreshButton.addEventListener("click", handlePayloadLogRefresh);
+      actions.appendChild(dom.logRefreshButton);
+    }
+
+    const box = tile.querySelector(".box");
+    if (box) {
+      dom.logMessage = document.createElement("div");
+      dom.logMessage.className = "payload-message payload-log-message";
+      dom.logMessage.setAttribute("role", "status");
+      dom.logMessage.setAttribute("aria-live", "polite");
+      dom.logMessage.hidden = true;
+      box.appendChild(dom.logMessage);
+
+      dom.logList = document.createElement("div");
+      dom.logList.className = "payload-log-list";
+      dom.logList.innerHTML = '<p class="payload-log-empty">Loading…</p>';
+      box.appendChild(dom.logList);
+    }
+
+    dom.tiles.appendChild(tile);
+    dom.logTile = tile;
+    renderPayloadLogs();
+  }
+}
+
+function handlePayloadDownloadClick(event) {
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  if (!target) return;
+  const button = target.closest("[data-payload-download]");
+  if (!button) return;
+  const format = (
+    button.getAttribute("data-payload-download") || "json"
+  ).toLowerCase();
+  const params = new URLSearchParams();
+  params.set("class", "payload");
+  params.set("format", format);
+  params.set("limit", String(PAYLOAD_EXPORT_LIMIT));
+  window.open(`/api/events/export?${params.toString()}`, "_blank", "noopener");
+  setPayloadMessage("Preparing payload log export…", "info", 1800);
+  setPayloadLogMessage("Preparing payload log export…", "info", 1800);
+}
+
+async function loadPayloadLogs(options = {}) {
+  if (!isPayloadPageActive() && !options.force) return;
+  ensurePayloadTiles();
+  if (!dom.logList || (payloadLogsLoading && !options.force)) return;
+  payloadLogsLoading = true;
+
+  try {
+    const params = new URLSearchParams();
+    params.set("class", "payload");
+    params.set("n", "200");
+    const data = await jget(`/api/events?${params.toString()}`);
+    const items = extractItems(data)
+      .map((item) => normalizePayloadEvent(item))
+      .filter(Boolean);
+    items.sort((a, b) => b.ts - a.ts);
+    payloadLogEntries = items.slice(0, PAYLOAD_LOG_LIMIT);
+    payloadLogsLoaded = true;
+    renderPayloadLogs();
+    if (!options.silent) {
+      setPayloadLogMessage("", "info");
+    }
+  } catch (error) {
+    if (!options.silent) {
+      const message = error?.message || "Failed to load payload logs.";
+      setPayloadLogMessage(message, "error", 3600);
+    }
+  } finally {
+    payloadLogsLoading = false;
+  }
+}
+
+function handlePayloadLogEvent(payload, meta = {}) {
+  ensurePayloadTiles();
+  if (meta?.type === "snapshot") {
+    const snapshot = extractItems(payload)
+      .map((item) => normalizePayloadEvent(item))
+      .filter(Boolean);
+    snapshot.sort((a, b) => b.ts - a.ts);
+    payloadLogEntries = snapshot.slice(0, PAYLOAD_LOG_LIMIT);
+    payloadLogsLoaded = true;
+    renderPayloadLogs();
+    return;
+  }
+
+  const entry = normalizePayloadEvent(payload);
+  if (!entry) return;
+  const existingIndex = payloadLogEntries.findIndex(
+    (item) => item.id === entry.id
+  );
+  if (existingIndex !== -1) {
+    payloadLogEntries.splice(existingIndex, 1);
+  }
+  payloadLogEntries.unshift(entry);
+  payloadLogEntries.sort((a, b) => b.ts - a.ts);
+  if (payloadLogEntries.length > PAYLOAD_LOG_LIMIT) {
+    payloadLogEntries.length = PAYLOAD_LOG_LIMIT;
+  }
+  payloadLogsLoaded = true;
+  renderPayloadLogs({ highlightId: entry.id });
+}
+
+function normalizePayloadEvent(raw) {
+  if (!raw) return null;
+  const cls = String(raw.class || raw.Class || "").toLowerCase();
+  if (cls && cls !== "payload") return null;
+
+  let tsValue = Date.now();
+  if (raw.ts) {
+    const parsed = new Date(raw.ts).getTime();
+    if (Number.isFinite(parsed)) {
+      tsValue = parsed;
+    }
+  }
+
+  const method = String(raw.method || "").toUpperCase() || "GET";
+  const path = String(raw.path || "");
+  const normalizedPath = path.toLowerCase();
+  if (normalizedPath.startsWith("/api/payload")) {
+    return null;
+  }
+  const rawQuery = String(raw.query || "");
+  const query = rawQuery.startsWith("?") ? rawQuery.slice(1) : rawQuery;
+  const status = Number(raw.status || 0);
+  const durationMs = Number(
+    raw.duration_ms || raw.durationMs || raw.duration || 0
+  );
+  const remoteIP = String(raw.remote_ip || raw.remoteIp || "");
+  const requestID = String(raw.request_id || raw.requestId || "").trim();
+  const fallbackId = `${tsValue}-${method}-${path}-${remoteIP}-${query}`;
+  const id = requestID || fallbackId;
+
+  return {
+    id,
+    ts: tsValue,
+    method,
+    path,
+    query,
+    status,
+    durationMs,
+    remoteIP,
+  };
+}
+
+function renderPayloadLogs(options = {}) {
+  if (!dom.logList) return;
+  if (!payloadLogEntries.length) {
+    const message = payloadLogsLoaded ? "No payload events yet." : "Loading…";
+    dom.logList.innerHTML = `<p class="payload-log-empty">${escapeHTML(
+      message
+    )}</p>`;
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  payloadLogEntries.forEach((entry) => {
+    const node = createPayloadLogEntry(entry);
+    if (options.highlightId && entry.id === options.highlightId) {
+      node.classList.add("is-new");
+      window.setTimeout(() => node.classList.remove("is-new"), 1200);
+    }
+    fragment.appendChild(node);
+  });
+
+  dom.logList.replaceChildren(fragment);
+}
+
+function createPayloadLogEntry(entry) {
+  const node = document.createElement("article");
+  node.className = "payload-log-entry";
+  const timestamp = formatTimestamp(entry.ts);
+  const method = entry.method || "GET";
+  const path = entry.query
+    ? `${entry.path || ""}?${entry.query}`
+    : entry.path || "";
+  const status = entry.status > 0 ? String(entry.status) : "—";
+  const statusClass = getPayloadLogStatusClass(entry.status);
+  const duration = formatPayloadLogDuration(entry.durationMs);
+  const remoteIP = entry.remoteIP || "—";
+
+  node.innerHTML = `
+    <header>
+      <span class="payload-log-time">${escapeHTML(timestamp)}</span>
+      <span class="payload-log-method">${escapeHTML(method)}</span>
+      <span class="payload-log-path">${escapeHTML(path)}</span>
+      <span class="payload-log-status${
+        statusClass ? ` ${statusClass}` : ""
+      }">${escapeHTML(status)}</span>
+    </header>
+    <div class="payload-log-meta">
+      <span class="payload-log-duration" title="Request duration">${escapeHTML(
+        duration
+      )}</span>
+      <span class="payload-log-ip" title="Remote IP">IP ${escapeHTML(
+        remoteIP
+      )}</span>
+    </div>
+  `;
+  return node;
+}
+
+function formatPayloadLogDuration(durationMs) {
+  const value = Number.isFinite(durationMs) ? durationMs : 0;
+  if (value <= 0) return "—";
+  if (value < 1000) return `${Math.round(value)} ms`;
+  if (value < 60000) return `${(value / 1000).toFixed(1)} s`;
+  const minutes = value / 60000;
+  return `${minutes.toFixed(1)} min`;
+}
+
+function getPayloadLogStatusClass(status) {
+  const value = Number(status);
+  if (!Number.isFinite(value) || value <= 0) return "";
+  if (value >= 500) return "is-error";
+  if (value >= 400) return "is-warn";
+  if (value >= 300) return "is-redirect";
+  if (value >= 200) return "is-success";
+  return "is-info";
+}
+
+function setPayloadLogMessage(text, variant = "info", ttl = 0) {
+  if (!dom.logMessage) return;
+  if (payloadLogMessageTimer) {
+    window.clearTimeout(payloadLogMessageTimer);
+    payloadLogMessageTimer = null;
+  }
+
+  dom.logMessage.classList.remove("show", "is-info", "is-error", "is-success");
+
+  if (!text || !text.trim()) {
+    dom.logMessage.textContent = "";
+    dom.logMessage.hidden = true;
+    return;
+  }
+
+  const styleClass =
+    variant === "error"
+      ? "is-error"
+      : variant === "success"
+      ? "is-success"
+      : "is-info";
+  dom.logMessage.hidden = false;
+  dom.logMessage.textContent = text;
+  dom.logMessage.classList.add("show", styleClass);
+
+  if (ttl > 0 && variant !== "error") {
+    payloadLogMessageTimer = window.setTimeout(() => {
+      setPayloadLogMessage("");
+    }, ttl);
+  }
+}
+
+function handlePayloadLogRefresh() {
+  if (rt && typeof rt.requestSnapshots === "function") {
+    setPayloadLogMessage("Refreshing payload logs…", "info", 2000);
+    rt.requestSnapshots("log.event");
+    return;
+  }
+  setPayloadLogMessage("Reloading payload logs…", "info", 2000);
+  loadPayloadLogs({ force: true, silent: true });
 }
 
 function subscribeRealtime() {
@@ -95,13 +405,24 @@ function subscribeRealtime() {
       snapshot: true,
     }
   );
+  rt.subscribe(
+    "log.event",
+    (payload, meta = {}) => handlePayloadLogEvent(payload, meta),
+    { snapshot: true }
+  );
   realtimeSubscribed = true;
 }
 
 function ensurePayloadLab(force = false) {
   if (!dom.page) return;
+  ensurePayloadTiles();
   if (!payloadLoadedOnce || force) {
     loadPayloads(force);
+  }
+  if (!payloadLogsLoaded || force) {
+    loadPayloadLogs({ force });
+  } else {
+    renderPayloadLogs();
   }
 }
 
@@ -974,6 +1295,11 @@ function getTunnelBaseURL() {
     return window.location.origin.replace(/\/$/, "");
   }
   return "";
+}
+
+function isPayloadPageActive() {
+  if (!dom.page) return false;
+  return dom.page.style.display !== "none";
 }
 
 function buildVariantURL(path) {
