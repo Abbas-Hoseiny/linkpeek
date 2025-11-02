@@ -1,0 +1,17 @@
+# VCS metadata
+.git
+.gitmodules
+
+# Local build artifacts
+bin
+data
+*.log
+coverage.out
+
+# Editor noise
+.DS_Store
+.idea
+.vscode
+
+# Tests & cache
+__pycache__

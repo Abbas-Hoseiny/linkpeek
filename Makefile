@@ -3,7 +3,16 @@ PKG=./cmd/linkpeek
 BIN_DIR=./bin
 GOFILES=$(shell find . -name '*.go' -not -path './vendor/*')
 
-.PHONY: all build run clean test tidy docker-build docker-up docker-down
+# Docker image settings for multi-arch release builds
+IMAGE ?= hoseiny/linkpeek
+PLATFORMS ?= linux/amd64,linux/arm64
+BUILDER ?= linkpeek-builder
+TAG ?= $(shell git describe --tags --always --dirty 2>/dev/null)
+ifeq ($(strip $(TAG)),)
+TAG := latest
+endif
+
+.PHONY: all build run clean test tidy docker-build docker-up docker-down docker-builder docker-release
 
 all: build
 
@@ -26,6 +35,19 @@ tidy:
 
 docker-build:
 	@docker build -t linkpeek:local .
+
+docker-builder:
+	@docker buildx inspect $(BUILDER) >/dev/null 2>&1 || docker buildx create --name $(BUILDER) --use
+	@docker buildx use $(BUILDER)
+	@docker buildx inspect --bootstrap $(BUILDER) >/dev/null
+
+docker-release: docker-builder
+	@echo "==> Building multi-arch image $(IMAGE):$(TAG)"
+	@docker buildx build \
+		--platform $(PLATFORMS) \
+		-t $(IMAGE):$(TAG) \
+		-t $(IMAGE):latest \
+		--push .
 
 docker-up:
 	@docker compose up -d --build

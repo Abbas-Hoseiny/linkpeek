@@ -32,6 +32,7 @@ make build   # builds ./bin/linkpeek using ./cmd/linkpeek
 make run     # builds then runs with DATA_DIR=./data
 make test    # go test ./...
 make tidy    # go mod tidy
+make docker-release TAG=v1.0.2  # multi-arch buildx push to Docker Hub (defaults to linux/amd64+arm64)
 ```
 
 You can also run ad‑hoc targets:
@@ -40,6 +41,23 @@ You can also run ad‑hoc targets:
 go run ./cmd/linkpeek            # start the server
 PORT=9010 go run ./cmd/wstest    # websocket smoke client
 ```
+
+### Publishing Docker Images
+
+LinkPeek ships with a buildx-ready Dockerfile. The `docker-release` target prepares a reusable builder (if necessary) and pushes a multi-architecture manifest to Docker Hub:
+
+```bash
+docker login                                  # once per session
+make docker-release TAG=v1.0.2                # pushes hoseiny/linkpeek:v1.0.2 and :latest
+```
+
+Environment variables you can override when running the target:
+
+- `IMAGE` – repository name (defaults to `hoseiny/linkpeek`).
+- `TAG` – tag applied alongside `latest` (defaults to `git describe --tags --always`).
+- `PLATFORMS` – comma separated list of target platforms (defaults to `linux/amd64,linux/arm64`).
+
+Need to inspect or prepare the buildx builder without pushing? Run `make docker-builder` once.
 
 All Go source follows standard formatting (`gofmt`).
 
@@ -102,6 +120,10 @@ Baseline flows worth exercising during regressions or large refactors:
 - The binary is statically linked (`CGO_ENABLED=0`) and copies templates + static assets into the final image (`Dockerfile`).
 - Set `DBIP_API_KEY` to enable geo‑lookups during analytics; otherwise the service gracefully skips remote calls.
 - All data written under `DATA_DIR` (payloads, events, auth store, tunnel logs). Bind or volume mount it for persistence.
+
+## License
+
+Distributed under the MIT License. See `LICENSE` for details.
 
 ## Docs Site (GitHub Pages Ready)
 
