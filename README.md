@@ -28,7 +28,7 @@ The Docker image `hoseiny/linkpeek` is also set to private during this period.
 For questions, demo requests, or collaboration inquiries:
 
 - **LinkedIn:** [Abbas Hoseiny](https://www.linkedin.com/in/abbas-hoseiny-b73123377/)
-- **Email:** [your-email-here]
+- **Email:** abbas.hoseiny@gmx.de
 - **Docker Hub:** [hoseiny/linkpeek](https://hub.docker.com/r/hoseiny/linkpeek)
 
 ---
